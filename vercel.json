@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "framework": "vite",
+  "installCommand": "npm ci --prefix yardlogic-app/frontend",
+  "buildCommand": "npm run build --prefix yardlogic-app/frontend",
+  "outputDirectory": "yardlogic-app/frontend/dist",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}
