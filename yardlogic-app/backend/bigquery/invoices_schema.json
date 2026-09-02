@@ -1,0 +1,92 @@
+[
+  {
+    "name": "invoiceId",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Unique invoice identifier"
+  },
+  {
+    "name": "businessId",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Business/company identifier"
+  },
+  {
+    "name": "invoiceNumber",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Invoice number for human reference"
+  },
+  {
+    "name": "customerId",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Customer identifier"
+  },
+  {
+    "name": "customerName",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Customer name"
+  },
+  {
+    "name": "amount",
+    "type": "FLOAT64",
+    "mode": "REQUIRED",
+    "description": "Total invoice amount excluding tax"
+  },
+  {
+    "name": "taxAmount",
+    "type": "FLOAT64",
+    "mode": "REQUIRED",
+    "description": "Tax amount (GST)"
+  },
+  {
+    "name": "discountAmount",
+    "type": "FLOAT64",
+    "mode": "NULLABLE",
+    "description": "Discount applied"
+  },
+  {
+    "name": "status",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Invoice status (DRAFT, UNPAID, PARTIAL, PAID, CANCELLED)"
+  },
+  {
+    "name": "invoiceDate",
+    "type": "DATE",
+    "mode": "REQUIRED",
+    "description": "Date invoice was created"
+  },
+  {
+    "name": "dueDate",
+    "type": "DATE",
+    "mode": "NULLABLE",
+    "description": "Payment due date"
+  },
+  {
+    "name": "amountPaid",
+    "type": "FLOAT64",
+    "mode": "NULLABLE",
+    "description": "Amount paid so far"
+  },
+  {
+    "name": "isPaid",
+    "type": "BOOLEAN",
+    "mode": "REQUIRED",
+    "description": "Is invoice fully paid"
+  },
+  {
+    "name": "createdAt",
+    "type": "TIMESTAMP",
+    "mode": "REQUIRED",
+    "description": "Record creation timestamp"
+  },
+  {
+    "name": "updatedAt",
+    "type": "TIMESTAMP",
+    "mode": "REQUIRED",
+    "description": "Last update timestamp"
+  }
+]

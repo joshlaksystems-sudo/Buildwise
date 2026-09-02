@@ -1,0 +1,837 @@
+// ============================================================
+// Vyapar+ Schema — single source of truth for web, mobile, desktop
+// Postgres via Prisma. Every module below maps 1:1 to a Vyapar
+// feature; AI-native fields (auto-tags, confidence scores) are
+// baked into the core tables instead of bolted on later.
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Tenancy & identity ----------
+
+model Business {
+  id           String   @id @default(uuid())
+  name         String
+  gstin        String?
+  address      String?
+  logoUrl      String?
+  defaultTax   Float    @default(0)
+  
+  // Step 1: Business Profile Master Data
+  ownerName    String?
+  ownerPhone   String?
+  ownerEmail   String?
+  stateName    String?  // e.g., "Maharashtra", "Gujarat"
+  stateCode    String?  // 2-letter state code for GST e-invoice (MH, GJ, etc.)
+  gstnType     String?  // "Individual" | "Partnership" | "Private Ltd" | "Public Ltd" | "Trust" | "LLP" | "OPC"
+  financialYearStart Int? // e.g., 4 (April in India)
+  invoicePrefix String? @default("INV")
+  invoiceStartNumber Int? @default(1)
+  estimatePrefix String? @default("EST")
+  estimateStartNumber Int? @default(1)
+  challanPrefix String? @default("CHALLAN")
+  challanStartNumber Int? @default(1)
+  businessType String?  // "Retail" | "Wholesale" | "Services" | "Manufacturing" | "Distribution"
+  industryVertical String? // "Cement" | "Steel" | "Medical" | "Grocery" | "Hardware" | "General"
+  bankAccountNumber String?
+  bankName     String?
+  ifscCode     String?
+  setupComplete Boolean @default(false)  // marks if business profile is fully configured
+  
+  // Medical vertical — compliance fields, optional for other verticals
+  drugLicenseNumber String?
+  drugLicenseExpiry DateTime?
+  createdAt    DateTime @default(now())
+
+  users        UserBusiness[]
+  customers    Customer[]
+  suppliers    Supplier[]
+  items        Item[]
+  invoices     Invoice[]
+  estimates    Estimate[]
+  challans     DeliveryChallan[]
+  expenses     Expense[]
+  stockMoves   StockMovement[]
+  payments     Payment[]
+  purchaseBills PurchaseBill[]
+  warehouses   Warehouse[]
+  gstFilings   GstFiling[]
+  campaigns    Campaign[]
+  materialTemplates MaterialTemplate[]
+  auditLogs    AuditLog[]
+  bankStatementLines BankStatementLine[]
+  creditNotes  CreditNote[]
+  debitNotes   DebitNote[]
+  notifications Notification[]
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String?  @unique
+  phone        String?  @unique
+  passwordHash String?  // optional — OTP-only accounts have no password
+  // Step 6: two-factor auth. Secret is only set once the user
+  // enables 2FA; totpEnabled gates whether login requires a code.
+  totpSecret   String?
+  totpEnabled  Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  businesses       UserBusiness[]
+  salesmanLogs     SalesmanLog[]
+  auditLogs        AuditLog[]
+  notifications    Notification[] @relation("UserNotifications")
+  preferences      NotificationPreference[] @relation("UserPreferences")
+}
+
+// Short-lived one-time codes for email/mobile login. A row is
+// consumed on first successful verify and ignored after that,
+// so a leaked code can't be replayed.
+model Otp {
+  id        String   @id @default(uuid())
+  target    String   // the email or phone the code was sent to
+  code      String
+  expiresAt DateTime
+  consumed  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([target, code])
+}
+
+// many-to-many with a role, so one login can run multiple shops
+// and one shop can have multiple staff logins (role-based access)
+model UserBusiness {
+  id         String   @id @default(uuid())
+  userId     String
+  businessId String
+  role       Role     @default(STAFF)
+
+  user       User     @relation(fields: [userId], references: [id])
+  business   Business @relation(fields: [businessId], references: [id])
+
+  @@unique([userId, businessId])
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  STAFF
+  SALESMAN
+  ACCOUNTANT
+}
+
+// ---------- Contacts ----------
+
+model Customer {
+  id         String   @id @default(uuid())
+  businessId String
+  name       String
+  phone      String?
+  email      String?
+  gstin      String?
+  address    String?
+  openingBalance Float @default(0)
+  creditLimit    Float?   // dealer/distributor credit limit (cement, wholesale)
+  loyaltyPoints  Float    @default(0)
+  lastPurchaseAt DateTime?  // drives dormant-customer win-back alerts
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+
+  business   Business  @relation(fields: [businessId], references: [id])
+  invoices   Invoice[]
+  estimates  Estimate[]
+  challans   DeliveryChallan[]
+  payments   Payment[]
+  creditNotes CreditNote[]
+  loyaltyTx  LoyaltyTransaction[]
+}
+
+model Supplier {
+  id         String   @id @default(uuid())
+  businessId String
+  name       String
+  phone      String?
+  email      String?
+  gstin      String?
+  address    String?
+  openingBalance Float @default(0)
+  bankAccountNumber String?
+  bankName   String?
+  ifscCode   String?
+  paymentTerms String? // e.g., "30 days" | "COD" | "Advance"
+  creditLimit Float?
+  isActive   Boolean  @default(true)
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+
+  business   Business  @relation(fields: [businessId], references: [id])
+  expenses   Expense[]
+  payments   Payment[]
+  debitNotes DebitNote[]
+  purchaseBills PurchaseBill[]
+}
+
+// ---------- Inventory ----------
+
+model Item {
+  id           String   @id @default(uuid())
+  businessId   String
+  name         String
+  sku          String?
+  barcode      String?
+  category     String?
+  unit         String   @default("PCS")
+  salePrice    Float    @default(0)
+  purchasePrice Float   @default(0)
+  taxRate      Float    @default(0)
+  hsnCode      String?  // required for GST invoices above the e-invoicing turnover threshold
+  mrp          Float?
+  isMrpInclusive Boolean @default(false)
+  currentStock Float    @default(0)   // cached aggregate — see WarehouseStock for per-location
+  lowStockAlert Float   @default(0)
+  reorderPoint Float    @default(0)   // when to send reorder alert
+  reorderQuantity Float  @default(0)  // suggested order quantity
+  // Cement / building-materials vertical (legacy freeform field —
+  // superseded by the MaterialTemplate engine below for new items,
+  // kept for backward compatibility with existing rows)
+  grade        String?
+  // Medical vertical
+  scheduleClass String? // Schedule H / H1 / X — drug scheduling under the Drugs & Cosmetics Act
+  saltComposition String? // e.g. "Paracetamol 500mg" — powers salt-based search
+  requiresBatchTracking Boolean @default(false)
+  // Metadata-driven vertical engine: an item optionally belongs to
+  // a MaterialTemplate, and its template-specific fields (grade,
+  // TMT size, brick class, sand type...) live in this JSON blob
+  // instead of a dedicated column per material — adding a new
+  // material is a data operation (clone a template), not a
+  // migration.
+  materialTemplateId String?
+  attributes   Json?    @default("{}")
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
+
+  business     Business @relation(fields: [businessId], references: [id])
+  materialTemplate MaterialTemplate? @relation(fields: [materialTemplateId], references: [id])
+  invoiceItems InvoiceItem[]
+  purchaseBillItems PurchaseBillItem[]
+  estimateItems EstimateItem[]
+  challanItems DeliveryChallanItem[]
+  stockMoves   StockMovement[]
+  batches      ItemBatch[]
+  unitConversions UnitConversion[]
+  warehouseStock WarehouseStock[]
+
+  @@index([businessId, barcode])
+  @@index([businessId, name])
+}
+
+// Multiple batches per item, each with its own expiry — required
+// for medical (legal requirement) and useful for any perishable/
+// dated stock (cement also has shelf-life sensitivity).
+model ItemBatch {
+  id          String    @id @default(uuid())
+  itemId      String
+  batchNumber String
+  quantity    Float
+  expiryDate  DateTime?
+  mfgDate     DateTime?
+  createdAt   DateTime  @default(now())
+
+  item        Item      @relation(fields: [itemId], references: [id])
+
+  @@index([itemId, expiryDate])
+}
+
+// "1 bag = 50 kg", "1 box = 12 pieces" — lets billing accept either
+// unit and convert against the item's base unit automatically.
+model UnitConversion {
+  id           String  @id @default(uuid())
+  itemId       String
+  fromUnit     String
+  toUnit       String
+  factor       Float   // 1 fromUnit = factor * toUnit
+
+  item         Item    @relation(fields: [itemId], references: [id])
+}
+
+// ---------- Metadata-driven vertical engine ----------
+//
+// A material vertical (Cement, Steel, Bricks, Sand, or anything
+// else) is defined as DATA, not code: a set of allowed units and a
+// small schema describing the extra fields that material needs
+// (grade for cement, TMT size for steel, brick class, sand type).
+// Cloning a template ("Steel from Cement") is one INSERT, not a
+// migration or a deploy — this is what makes the vertical genuinely
+// pluggable rather than four separate hardcoded verticals.
+model MaterialTemplate {
+  id              String   @id @default(uuid())
+  businessId      String?  // NULL = a global starter template (Cement/Steel/Bricks/Sand seeds)
+  name            String   // "Cement", "Steel/Iron", "Bricks", "Sand"
+  unitOptions     Json     // e.g. ["Bag (50kg)", "Ton"]
+  // Each entry: { key, label, type: "select"|"text"|"number", options?: string[] }
+  // e.g. [{ key: "grade", label: "Grade", type: "select", options: ["OPC 43","OPC 53","PPC"] }]
+  attributeSchema Json
+  defaultHsnCode  String?
+  defaultGstRate  Float?
+  createdAt       DateTime @default(now())
+
+  business        Business? @relation(fields: [businessId], references: [id])
+  items           Item[]
+}
+
+// every stock change (sale, purchase, adjustment, OCR-entry) is
+// logged here — this is what powers reorder prediction later
+model StockMovement {
+  id         String   @id @default(uuid())
+  businessId String
+  itemId     String
+  change     Float
+  reason     StockReason
+  refId      String?
+  note       String?
+  createdAt  DateTime @default(now())
+
+  business   Business @relation(fields: [businessId], references: [id])
+  item       Item     @relation(fields: [itemId], references: [id])
+}
+
+enum StockReason {
+  SALE
+  PURCHASE
+  ADJUSTMENT
+  RETURN
+  CHALLAN
+  OPENING
+}
+
+// ---------- Billing ----------
+
+model Invoice {
+  id         String   @id @default(uuid())
+  businessId String
+  customerId String?
+  number     String
+  type       InvoiceType @default(GST)
+  status     InvoiceStatus @default(UNPAID)
+  subTotal   Float
+  discount   Float    @default(0)
+  taxTotal   Float    @default(0)
+  grandTotal Float
+  amountPaid Float    @default(0)
+  paymentMode PaymentMode?
+  isEInvoice Boolean  @default(false)
+  eInvoiceIrn String?
+  isEWayBill Boolean  @default(false)
+  // Reverse charge / TCS
+  isRcm      Boolean  @default(false)  // buyer pays GST directly, not seller
+  tcsAmount  Float    @default(0)      // tax collected at source (dealer/distributor sales)
+  // Cement / bulk-dispatch vertical
+  vehicleNumber   String?
+  transporterId   String?
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+
+  business   Business  @relation(fields: [businessId], references: [id])
+  customer   Customer? @relation(fields: [customerId], references: [id])
+  items      InvoiceItem[]
+  payments   Payment[]
+  creditNotes CreditNote[]
+  ewayBill   EwayBill?
+
+  @@unique([businessId, number])
+}
+
+enum InvoiceType {
+  GST
+  NON_GST
+  POS
+}
+
+enum InvoiceStatus {
+  DRAFT
+  UNPAID
+  PARTIAL
+  PAID
+  CANCELLED
+}
+
+model InvoiceItem {
+  id         String  @id @default(uuid())
+  invoiceId  String
+  itemId     String?
+  name       String
+  quantity   Float
+  unitPrice  Float
+  discount   Float   @default(0)
+  taxRate    Float   @default(0)
+  lineTotal  Float
+
+  invoice    Invoice @relation(fields: [invoiceId], references: [id])
+  item       Item?   @relation(fields: [itemId], references: [id])
+}
+
+// ---------- Purchase Bills ----------
+
+model PurchaseBill {
+  id         String   @id @default(uuid())
+  businessId String
+  supplierId String?
+  number     String
+  status     BillStatus @default(DRAFT)
+  subTotal   Float
+  discount   Float    @default(0)
+  taxTotal   Float    @default(0)
+  grandTotal Float
+  amountPaid Float    @default(0)
+  paymentMode PaymentMode?
+  dueDate    DateTime?
+  referenceNumber String?  // PO/challan/supplier reference
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+
+  business   Business @relation(fields: [businessId], references: [id])
+  supplier   Supplier? @relation(fields: [supplierId], references: [id])
+  items      PurchaseBillItem[]
+  payments   Payment[]
+
+  @@unique([businessId, number])
+}
+
+enum BillStatus {
+  DRAFT
+  RECEIVED
+  PARTIAL
+  PAID
+  CANCELLED
+}
+
+model PurchaseBillItem {
+  id         String  @id @default(uuid())
+  billId     String
+  itemId     String?
+  name       String
+  quantity   Float
+  unitPrice  Float
+  discount   Float   @default(0)
+  taxRate    Float   @default(0)
+  lineTotal  Float
+
+  bill       PurchaseBill @relation(fields: [billId], references: [id])
+  item       Item?   @relation(fields: [itemId], references: [id])
+}
+
+// ---------- Estimates / Quotations ----------
+
+model Estimate {
+  id         String   @id @default(uuid())
+  businessId String
+  customerId String?
+  number     String
+  status     EstimateStatus @default(OPEN)
+  subTotal   Float
+  taxTotal   Float    @default(0)
+  grandTotal Float
+  convertedInvoiceId String?
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+
+  business   Business  @relation(fields: [businessId], references: [id])
+  customer   Customer? @relation(fields: [customerId], references: [id])
+  items      EstimateItem[]
+}
+
+enum EstimateStatus {
+  OPEN
+  CONVERTED
+  EXPIRED
+}
+
+model EstimateItem {
+  id         String   @id @default(uuid())
+  estimateId String
+  itemId     String?
+  name       String
+  quantity   Float
+  unitPrice  Float
+  taxRate    Float    @default(0)
+  lineTotal  Float
+
+  estimate   Estimate @relation(fields: [estimateId], references: [id])
+  item       Item?    @relation(fields: [itemId], references: [id])
+}
+
+// ---------- Delivery Challans ----------
+
+model DeliveryChallan {
+  id         String   @id @default(uuid())
+  businessId String
+  customerId String?
+  number     String
+  status     ChallanStatus @default(PENDING)
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+
+  business   Business  @relation(fields: [businessId], references: [id])
+  customer   Customer? @relation(fields: [customerId], references: [id])
+  items      DeliveryChallanItem[]
+}
+
+enum ChallanStatus {
+  PENDING
+  DELIVERED
+  CANCELLED
+}
+
+model DeliveryChallanItem {
+  id         String          @id @default(uuid())
+  challanId  String
+  itemId     String?
+  name       String
+  quantity   Float
+
+  challan    DeliveryChallan @relation(fields: [challanId], references: [id])
+  item       Item?           @relation(fields: [itemId], references: [id])
+}
+
+// ---------- Expenses (from OCR / manual) ----------
+
+model Expense {
+  id         String   @id @default(uuid())
+  businessId String
+  supplierId String?
+  category   String?
+  amount     Float
+  taxAmount  Float    @default(0)
+  note       String?
+  sourceImageUrl String?
+  aiCategoryConfidence Float?   // set when OCR/AI auto-tagged this
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+
+  business   Business  @relation(fields: [businessId], references: [id])
+  supplier   Supplier? @relation(fields: [supplierId], references: [id])
+}
+
+// ---------- Payments (unifies invoice + supplier payments) ----------
+
+model Payment {
+  id         String   @id @default(uuid())
+  businessId String
+  customerId String?
+  supplierId String?
+  invoiceId  String?
+  billId     String?
+  amount     Float
+  mode       PaymentMode
+  direction  PaymentDirection
+  note       String?
+  reconciled Boolean  @default(false)  // bank reconciliation flag
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+
+  business   Business  @relation(fields: [businessId], references: [id])
+  customer   Customer? @relation(fields: [customerId], references: [id])
+  supplier   Supplier? @relation(fields: [supplierId], references: [id])
+  invoice    Invoice?  @relation(fields: [invoiceId], references: [id])
+  bill       PurchaseBill? @relation(fields: [billId], references: [id])
+}
+
+enum PaymentMode {
+  CASH
+  UPI
+  CARD
+  BANK_TRANSFER
+  CHEQUE
+}
+
+enum PaymentDirection {
+  IN
+  OUT
+}
+
+// ---------- Field staff tracking ----------
+
+model SalesmanLog {
+  id        String   @id @default(uuid())
+  userId    String
+  latitude  Float
+  longitude Float
+  note      String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// ---------- Credit / Debit Notes ----------
+
+// Issued to a customer — reduces what they owe (sales return, price
+// correction, discount adjustment after the original invoice).
+model CreditNote {
+  id         String   @id @default(uuid())
+  businessId String
+  customerId String?
+  invoiceId  String?  // the original invoice this corrects, if any
+  number     String
+  reason     String?
+  amount     Float
+  taxAmount  Float    @default(0)
+  createdAt  DateTime @default(now())
+
+  business   Business  @relation(fields: [businessId], references: [id])
+  customer   Customer? @relation(fields: [customerId], references: [id])
+  invoice    Invoice?  @relation(fields: [invoiceId], references: [id])
+  items      CreditNoteItem[]
+
+  @@unique([businessId, number])
+}
+
+model CreditNoteItem {
+  id           String     @id @default(uuid())
+  creditNoteId String
+  name         String
+  quantity     Float
+  unitPrice    Float
+  lineTotal    Float
+
+  creditNote   CreditNote @relation(fields: [creditNoteId], references: [id])
+}
+
+// Issued to a supplier — reduces what you owe them (purchase return,
+// damaged/expired stock sent back).
+model DebitNote {
+  id         String   @id @default(uuid())
+  businessId String
+  supplierId String?
+  number     String
+  reason     String?  // e.g. "expired stock return", "damaged goods"
+  amount     Float
+  taxAmount  Float    @default(0)
+  createdAt  DateTime @default(now())
+
+  business   Business  @relation(fields: [businessId], references: [id])
+  supplier   Supplier? @relation(fields: [supplierId], references: [id])
+  items      DebitNoteItem[]
+
+  @@unique([businessId, number])
+}
+
+model DebitNoteItem {
+  id          String    @id @default(uuid())
+  debitNoteId String
+  name        String
+  quantity    Float
+  unitPrice   Float
+  lineTotal   Float
+
+  debitNote   DebitNote @relation(fields: [debitNoteId], references: [id])
+}
+
+// ---------- Multi-warehouse / multi-location ----------
+
+model Warehouse {
+  id         String   @id @default(uuid())
+  businessId String
+  name       String
+  address    String?
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  business   Business @relation(fields: [businessId], references: [id])
+  stock      WarehouseStock[]
+}
+
+model WarehouseStock {
+  id          String    @id @default(uuid())
+  warehouseId String
+  itemId      String
+  quantity    Float     @default(0)
+
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  item        Item      @relation(fields: [itemId], references: [id])
+
+  @@unique([warehouseId, itemId])
+}
+
+// ---------- GST filing & compliance ----------
+//
+// IMPORTANT: actually submitting GSTR-1/3B, generating e-invoice
+// IRNs, or generating e-way bills requires a licensed GSP (GST
+// Suvidha Provider) contract with the government — this app cannot
+// do that standalone. These tables track the real data your app
+// CAN compute (period totals, reconciliation status) and the
+// filing lifecycle once you plug in a GSP. See services/gspService.ts.
+
+model GstFiling {
+  id            String   @id @default(uuid())
+  businessId    String
+  returnType    String   // GSTR1 | GSTR3B
+  period        String   // "2026-08" (month) or "2026-Q2" (quarter)
+  status        String   @default("DRAFT") // DRAFT | READY | FILED | ERROR
+  taxableValue  Float    @default(0)
+  taxCollected  Float    @default(0)
+  itcClaimed    Float    @default(0)
+  gspReference  String?  // filing acknowledgement number, once actually filed via a GSP
+  filedAt       DateTime?
+  errorDetail   String?
+  createdAt     DateTime @default(now())
+
+  business      Business @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, returnType, period])
+}
+
+// GSTR-2A/2B reconciliation — matches your purchase records
+// (expenses/supplier invoices) against what suppliers actually
+// reported, to catch ITC mismatches before filing.
+model ItcReconciliation {
+  id             String   @id @default(uuid())
+  businessId     String
+  supplierGstin  String
+  invoiceNumber  String
+  ourAmount      Float?   // what we recorded
+  gstnAmount     Float?   // what appeared in 2A/2B from GSTN
+  matchStatus    String   @default("PENDING") // MATCHED | MISMATCH | MISSING_IN_2A | MISSING_IN_BOOKS | PENDING
+  createdAt      DateTime @default(now())
+
+  @@index([businessId, matchStatus])
+}
+
+model EwayBill {
+  id             String   @id @default(uuid())
+  invoiceId      String   @unique
+  ewbNumber      String?  // returned by the GSP/NIC once actually generated
+  vehicleNumber  String?
+  transporterId  String?
+  status         String   @default("PENDING") // PENDING | GENERATED | CANCELLED | EXPIRED
+  validUntil     DateTime?
+  createdAt      DateTime @default(now())
+
+  invoice        Invoice  @relation(fields: [invoiceId], references: [id])
+}
+
+// ---------- Customer growth ----------
+
+model LoyaltyTransaction {
+  id         String   @id @default(uuid())
+  customerId String
+  points     Float    // positive = earned, negative = redeemed
+  reason     String?
+  invoiceId  String?
+  createdAt  DateTime @default(now())
+
+  customer   Customer @relation(fields: [customerId], references: [id])
+}
+
+model Campaign {
+  id           String   @id @default(uuid())
+  businessId   String
+  channel      String   // WHATSAPP | SMS
+  message      String
+  segment      String   // e.g. "high_value", "dormant", "frequent", "all"
+  status       String   @default("DRAFT") // DRAFT | SENT
+  sentCount    Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  business     Business @relation(fields: [businessId], references: [id])
+}
+
+model PaymentReminder {
+  id         String   @id @default(uuid())
+  businessId String
+  invoiceId  String?
+  customerId String?
+  channel    String   // WHATSAPP | SMS | EMAIL
+  status     String   @default("PENDING") // PENDING | SENT | FAILED
+  sentAt     DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([businessId, status])
+}
+
+// ---------- Step 6: Security, audit, credit, reconciliation ----------
+
+// "Who changed what, when" — one row per mutating action on a
+// business's data. Written by a thin helper (services/audit.ts)
+// called from routes, not a database trigger, so it can capture
+// which user + which role did it, not just which row changed.
+model AuditLog {
+  id         String   @id @default(uuid())
+  businessId String
+  userId     String?
+  action     String   // e.g. "invoice.create", "item.adjust_stock", "invoice.void"
+  entityType String   // e.g. "Invoice"
+  entityId   String?
+  detail     Json?    // small structured diff/context, not a full row dump
+  createdAt  DateTime @default(now())
+
+  business   Business @relation(fields: [businessId], references: [id])
+  user       User?    @relation(fields: [userId], references: [id])
+
+  @@index([businessId, entityType, createdAt])
+}
+
+// A row imported from a bank statement CSV, matched against
+// Payment records — flags what's reconciled vs. still outstanding
+// without requiring real bank API access.
+model BankStatementLine {
+  id           String   @id @default(uuid())
+  businessId   String
+  date         DateTime
+  description  String
+  amount       Float
+  matchedPaymentId String?
+  status       String   @default("UNMATCHED") // UNMATCHED | MATCHED | IGNORED
+  createdAt    DateTime @default(now())
+
+  business     Business @relation(fields: [businessId], references: [id])
+
+  @@index([businessId, status])
+}
+
+// ---------- Notifications ----------
+
+// User notifications for low stock, overdue invoices, payments due, etc.
+// Soft-delete (isRead) instead of hard-delete to preserve audit trail
+model Notification {
+  id          String   @id @default(uuid())
+  businessId  String
+  userId      String?
+  type        String   // "LOW_STOCK" | "OVERDUE_INVOICE" | "PAYMENT_DUE" | "SYSTEM"
+  title       String
+  message     String
+  entityType  String?  // "Item" | "Invoice" | "Bill" | null for system
+  entityId    String?
+  isRead      Boolean  @default(false)
+  readAt      DateTime?
+  createdAt   DateTime @default(now())
+  
+  business    Business @relation(fields: [businessId], references: [id])
+  user        User?    @relation("UserNotifications", fields: [userId], references: [id])
+
+  @@index([businessId, isRead, createdAt])
+  @@index([userId, isRead])
+}
+
+// Notification preferences per user/business
+model NotificationPreference {
+  id            String   @id @default(uuid())
+  businessId    String
+  userId        String
+  lowStockAlert Boolean  @default(true)
+  overdueAlert  Boolean  @default(true)
+  paymentAlert  Boolean  @default(true)
+  dailyDigest   Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  user          User     @relation("UserPreferences", fields: [userId], references: [id])
+  
+  @@unique([businessId, userId])
+}

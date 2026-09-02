@@ -1,0 +1,103 @@
+/*
+  Design concept: the digital bahi-khata (ledger book).
+  Indian shopkeepers already trust the physical ledger — ruled
+  columns, ink, a running balance. We borrow that visual language
+  instead of generic SaaS-dashboard chrome: hairline rules instead
+  of card shadows, a serif for numbers and totals (the way a
+  ledger's totals are underlined and emphasized), a spice-market
+  gold for the one accent color instead of the default terracotta.
+*/
+
+:root {
+  /* Color */
+  --ink: #16233f;        /* primary text, brand */
+  --ink-soft: #4a5570;   /* secondary text */
+  --paper: #f6f6f2;      /* app background — cool off-white, not cream */
+  --paper-raised: #ffffff;
+  --rule: #d8d6cc;       /* hairline border color, like ruled ledger lines */
+  --gold: #c98a1f;       /* single accent — spice-market gold */
+  --teal: #1f6f5c;       /* positive / money-in */
+  --red: #a83c3c;        /* negative / money-out / alerts */
+
+  /* Type */
+  --font-display: "IBM Plex Serif", Georgia, serif;
+  --font-ui: "IBM Plex Sans", system-ui, sans-serif;
+
+  --radius: 3px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.numeral {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  margin: 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th, td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 14px;
+}
+
+th {
+  color: var(--ink-soft);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+button, input, select {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+button {
+  background: var(--ink);
+  color: var(--paper-raised);
+  border: none;
+  border-radius: var(--radius);
+  padding: 9px 16px;
+  cursor: pointer;
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--rule);
+}
+
+button.gold {
+  background: var(--gold);
+  color: #241a00;
+}
+
+input, select {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  background: var(--paper-raised);
+  color: var(--ink);
+}
+
+a { color: var(--ink); }

@@ -1,0 +1,402 @@
+.dashboard-page {
+  padding: 24px;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  min-height: 100vh;
+}
+
+.dashboard-page h1 {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin-bottom: 8px;
+}
+
+.dashboard-subtitle {
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 32px;
+}
+
+.dashboard-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-size: 16px;
+  color: #666;
+}
+
+/* Modal Styling */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 8px;
+  padding: 32px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  max-width: 500px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-content.modal-large {
+  max-width: 600px;
+}
+
+.modal-content h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 12px;
+}
+
+.modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: #999;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.modal-close:hover {
+  color: #333;
+}
+
+.setup-hint {
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 24px;
+  line-height: 1.5;
+}
+
+/* KPI Section */
+.kpi-section {
+  margin-bottom: 40px;
+}
+
+.kpi-section h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 16px;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.kpi-card {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.kpi-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.kpi-card.highlight {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.kpi-card.highlight .kpi-value {
+  color: white !important;
+}
+
+.kpi-card.highlight .kpi-label {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.kpi-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.kpi-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: white;
+}
+
+.trend {
+  font-size: 20px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.trend.up {
+  color: #2ecc71;
+}
+
+.trend.down {
+  color: #e74c3c;
+  transform: rotate(180deg);
+}
+
+.kpi-label {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.kpi-value {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Cash Flow Section */
+.cash-flow-section {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 40px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.cash-flow-section h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 20px;
+}
+
+.cash-flow-chart {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+  gap: 12px;
+  align-items: flex-end;
+  height: 200px;
+}
+
+.flow-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  border-radius: 4px 4px 0 0;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  position: relative;
+  padding: 8px 4px;
+}
+
+.flow-bar:hover {
+  opacity: 0.8;
+}
+
+.flow-label {
+  font-size: 11px;
+  color: #666;
+  margin-top: 4px;
+  font-weight: 600;
+}
+
+.flow-value {
+  font-size: 10px;
+  color: white;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  margin-bottom: 4px;
+}
+
+/* Outstanding Section */
+.outstanding-section {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 40px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.outstanding-section h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 16px;
+}
+
+.outstanding-card {
+  background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+  color: white;
+  padding: 24px;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.outstanding-value {
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.outstanding-card p {
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+/* Low Stock Section */
+.low-stock-section {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.low-stock-section h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 16px;
+}
+
+.empty-message {
+  font-size: 13px;
+  color: #999;
+  text-align: center;
+  padding: 40px 0;
+  font-style: italic;
+}
+
+.low-stock-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.low-stock-table thead {
+  background: #f5f5f5;
+}
+
+.low-stock-table th {
+  padding: 12px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 2px solid #ddd;
+}
+
+.low-stock-table td {
+  padding: 12px;
+  font-size: 13px;
+  border-bottom: 1px solid #eee;
+}
+
+.low-stock-table tr:hover {
+  background: #f9f9f9;
+}
+
+.low-stock-table .item-name {
+  font-weight: 500;
+  color: #1a1a1a;
+}
+
+.low-stock-table .numeral {
+  text-align: right;
+  font-family: "Courier New", monospace;
+  font-weight: 500;
+}
+
+.low-stock-table .numeral.threshold {
+  color: #e74c3c;
+  font-weight: 600;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .dashboard-page {
+    padding: 16px;
+  }
+
+  .dashboard-page h1 {
+    font-size: 22px;
+  }
+
+  .kpi-grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+  }
+
+  .kpi-card {
+    padding: 16px;
+  }
+
+  .kpi-value {
+    font-size: 20px;
+  }
+
+  .kpi-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+  }
+
+  .cash-flow-chart {
+    height: 150px;
+  }
+
+  .modal-content {
+    padding: 24px;
+  }
+
+  .outstanding-value {
+    font-size: 24px;
+  }
+
+  .low-stock-table {
+    font-size: 12px;
+  }
+
+  .low-stock-table th,
+  .low-stock-table td {
+    padding: 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dashboard-page h1 {
+    font-size: 20px;
+    margin-bottom: 4px;
+  }
+
+  .dashboard-subtitle {
+    margin-bottom: 20px;
+  }
+}

@@ -1,0 +1,17 @@
+node_modules/
+dist/
+build/
+
+# Environment files — never commit real credentials
+.env
+.env.local
+.env.*.local
+.env.production
+
+# Service account / GSP keys
+buildwise-key.json
+*.pem
+
+*.log
+.vercel
+.DS_Store

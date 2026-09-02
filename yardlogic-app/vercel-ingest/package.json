@@ -1,0 +1,15 @@
+{
+  "name": "khatabook-bigquery-ingest",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vercel dev"
+  },
+  "dependencies": {
+    "@google-cloud/bigquery": "^7.9.1"
+  },
+  "devDependencies": {
+    "@vercel/node": "^3.2.4",
+    "typescript": "^5.5.3"
+  }
+}

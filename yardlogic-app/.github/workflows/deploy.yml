@@ -1,0 +1,113 @@
+name: Deploy Buildwise (Neon + BigQuery + Vercel)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  backend:
+    name: Backend — migrate Neon, verify BigQuery, deploy to Vercel
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: yardlogic-app/backend
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: yardlogic-app/backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      # Applies only new migrations — never resets/drops. Requires the
+      # Neon DB to already be baselined (see the one-time step in the
+      # migration report / chat instructions) if tables were created
+      # by hand instead of by Prisma originally.
+      - name: Apply Prisma migrations to Neon (non-destructive)
+        run: npx prisma migrate deploy
+
+      # Non-destructive: creates the dataset/tables only if missing,
+      # never alters or drops existing ones.
+      - name: Ensure BigQuery dataset & tables exist
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          GOOGLE_CLOUD_PROJECT_ID: ${{ secrets.GOOGLE_CLOUD_PROJECT_ID }}
+          BIGQUERY_DATASET: ${{ secrets.BIGQUERY_DATASET }}
+          BIGQUERY_REGION: ${{ secrets.BIGQUERY_REGION }}
+        run: |
+          echo "$GOOGLE_APPLICATION_CREDENTIALS_JSON" > /tmp/gcp-key.json
+          gcloud auth activate-service-account --key-file=/tmp/gcp-key.json
+          gcloud config set project "$GOOGLE_CLOUD_PROJECT_ID"
+
+          if ! bq show --dataset "${GOOGLE_CLOUD_PROJECT_ID}:${BIGQUERY_DATASET}" > /dev/null 2>&1; then
+            bq mk --dataset --location="$BIGQUERY_REGION" "${GOOGLE_CLOUD_PROJECT_ID}:${BIGQUERY_DATASET}"
+          fi
+
+          for t in invoices payments expenses; do
+            if ! bq show --table "${GOOGLE_CLOUD_PROJECT_ID}:${BIGQUERY_DATASET}.${t}" > /dev/null 2>&1; then
+              bq mk --table "${GOOGLE_CLOUD_PROJECT_ID}:${BIGQUERY_DATASET}.${t}" "bigquery/${t}_schema.json"
+            fi
+          done
+          rm -f /tmp/gcp-key.json
+
+      - name: Build
+        run: npm run build
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_BACKEND_PROJECT_ID }}
+          working-directory: yardlogic-app/backend
+          vercel-args: "--prod"
+
+  frontend:
+    name: Frontend — build & deploy to Vercel
+    runs-on: ubuntu-latest
+    needs: backend
+    defaults:
+      run:
+        working-directory: yardlogic-app/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: yardlogic-app/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check & build
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          VITE_COMPANY_NAME: ${{ secrets.VITE_COMPANY_NAME }}
+          VITE_PRODUCT_NAME: ${{ secrets.VITE_PRODUCT_NAME }}
+          VITE_GCS_BUCKET: ${{ secrets.VITE_GCS_BUCKET }}
+          VITE_GCP_PROJECT_ID: ${{ secrets.VITE_GCP_PROJECT_ID }}
+        run: npm run build
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_FRONTEND_PROJECT_ID }}
+          working-directory: yardlogic-app/frontend
+          vercel-args: "--prod"

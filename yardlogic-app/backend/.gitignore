@@ -1,0 +1,72 @@
+# ===== OS FILES =====
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+Desktop.ini
+
+# ===== EDITOR / IDE =====
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ===== NODE / DEPENDENCIES =====
+node_modules/
+**/node_modules/
+
+# ===== ENV / SECRETS =====
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.test
+.env.vault
+**/.env
+**/.env.local
+
+# ===== TYPESCRIPT / BUILD OUTPUT =====
+dist/
+build/
+out/
+*.tsbuildinfo
+**/dist/
+**/build/
+
+# ===== PRISMA =====
+**/prisma/dev.db
+**/prisma/*.db
+**/prisma/*.db-journal
+# Do NOT ignore schema.prisma or migrations/ — keep those tracked
+
+# ===== VERCEL =====
+.vercel
+**/.vercel
+
+# ===== LOGS =====
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+
+# ===== BIGQUERY / GOOGLE CLOUD CREDENTIALS =====
+*.json.key
+service-account*.json
+gcp-credentials*.json
+bigquery-key*.json
+
+# ===== TEST / COVERAGE =====
+coverage/
+.nyc_output/
+
+# ===== CACHE =====
+.cache/
+.turbo/
+.eslintcache
+
+# ===== MISC =====
+*.tmp
+*.bak
+.DS_Store
