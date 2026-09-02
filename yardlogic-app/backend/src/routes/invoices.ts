@@ -2,7 +2,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { AuthedRequest, requireAuth, signInvoiceAccessToken } from "../middleware/auth";
-import { streamInvoicePdf } from "../services/pdfService";
+import { generateInvoicePdf } from "../services/pdfService";
+import { uploadInvoiceToGCS } from "../services/googleCloud";
 import { writeAudit } from "../services/audit";
 
 export const invoicesRouter = Router();
@@ -173,7 +174,14 @@ invoicesRouter.get("/:id/pdf", async (req: AuthedRequest, res) => {
     include: { customer: true, items: true, business: true },
   });
   if (!invoice) return res.status(404).json({ error: "Not found" });
-  streamInvoicePdf(invoice, res);
+  const pdf = await generateInvoicePdf(invoice);
+  const url = await uploadInvoiceToGCS(pdf, invoice.number, invoice.businessId, {
+    metadata: { invoiceId: invoice.id, businessId: invoice.businessId },
+  });
+  if (url) res.setHeader("X-Invoice-GCS-Url", url);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="${invoice.number}.pdf"`);
+  res.send(pdf);
 });
 
 // Builds a wa.me link with the bill summary pre-filled. Actually

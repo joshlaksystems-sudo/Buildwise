@@ -70,3 +70,4 @@ coverage/
 *.tmp
 *.bak
 .DS_Store
+.env*

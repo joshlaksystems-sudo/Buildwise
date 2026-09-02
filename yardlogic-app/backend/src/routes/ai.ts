@@ -9,6 +9,7 @@ import {
   generateReportWithVertexAI,
   getInvoiceInsightsWithVertexAI,
 } from "../services/googleCloud";
+import { AICreditExhaustedError, getAIWallet, withAICredit } from "../services/aiWallet";
 
 export const aiRouter = Router();
 aiRouter.use(requireAuth);
@@ -27,11 +28,21 @@ async function requireAISubscription(req: AuthedRequest, res: any, next: any) {
   next();
 }
 
+aiRouter.get("/wallet", async (req: AuthedRequest, res) => {
+  const wallet = await getAIWallet(req.businessId!);
+  res.json({
+    balance: Number(wallet.balance),
+    currency: "INR",
+    dailyFreeTokens: Number(process.env.AI_DAILY_FREE_TOKENS || "10"),
+    dailyFreeChats: Number(process.env.AI_DAILY_FREE_CHATS || "5"),
+  });
+});
+
 aiRouter.use(requireAISubscription);
 
 // OCR → Categorize expense using Vertex AI (if enabled) or Claude (fallback)
 const ocrSchema = z.object({
-  rawText: z.string().min(1),
+  rawText: z.string().min(1).max(8000),
   imageUrl: z.string().optional(),
 });
 
@@ -40,19 +51,18 @@ aiRouter.post("/categorize-expense", async (req: AuthedRequest, res) => {
     const parsed = ocrSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-    let result;
-    
-    // Use Vertex AI if enabled, otherwise fallback to Claude
-    if (process.env.VERTEX_AI_ENABLE === "true") {
-      try {
-        result = await categorizeExpenseWithVertexAI(parsed.data.rawText);
-      } catch (error) {
-        console.warn("Vertex AI failed, falling back to Claude:", error);
-        result = await categorizeReceiptText(parsed.data.rawText);
+    const result = await withAICredit(req.businessId!, req.userId!, "categorizeExpense", async () => {
+      // Use Vertex AI if enabled, otherwise fallback to Claude.
+      if (process.env.VERTEX_AI_ENABLE === "true") {
+        try {
+          return await categorizeExpenseWithVertexAI(parsed.data.rawText);
+        } catch (error) {
+          console.warn("Vertex AI failed, falling back to Claude:", error);
+          return categorizeReceiptText(parsed.data.rawText);
+        }
       }
-    } else {
-      result = await categorizeReceiptText(parsed.data.rawText);
-    }
+      return categorizeReceiptText(parsed.data.rawText);
+    });
 
     const expense = await prisma.expense.create({
       data: {
@@ -68,13 +78,14 @@ aiRouter.post("/categorize-expense", async (req: AuthedRequest, res) => {
 
     res.status(201).json({ expense, aiReasoning: result.reasoning });
   } catch (error) {
+    if (error instanceof AICreditExhaustedError) return res.status(402).json({ error: error.message, balance: error.balance, required: error.required });
     console.error("Error categorizing expense:", error);
     res.status(500).json({ error: "Failed to categorize expense" });
   }
 });
 
 // Natural language query over business data
-const askSchema = z.object({ question: z.string().min(1) });
+const askSchema = z.object({ question: z.string().min(1).max(4000) });
 
 aiRouter.post("/ask", async (req: AuthedRequest, res) => {
   try {
@@ -106,15 +117,11 @@ aiRouter.post("/ask", async (req: AuthedRequest, res) => {
       }),
     ]);
 
-    const answer = await answerBusinessQuestion(parsed.data.question, {
-      invoices,
-      expenses,
-      payments,
-      gstFilings,
-    });
+    const answer = await withAICredit(req.businessId!, req.userId!, "ask", () => answerBusinessQuestion(parsed.data.question, { invoices, expenses, payments, gstFilings }));
 
     res.json({ answer });
   } catch (error) {
+    if (error instanceof AICreditExhaustedError) return res.status(402).json({ error: error.message, balance: error.balance, required: error.required });
     console.error("Error answering question:", error);
     res.status(500).json({ error: "Failed to answer question" });
   }
@@ -189,12 +196,13 @@ aiRouter.post("/generate-report", async (req: AuthedRequest, res) => {
     };
 
     if (process.env.VERTEX_AI_ENABLE === "true") {
-      const insights = await generateReportWithVertexAI(reportData, parsed.data.reportType);
+      const insights = await withAICredit(req.businessId!, req.userId!, "generateReport", () => generateReportWithVertexAI(reportData, parsed.data.reportType));
       return res.json({ report: reportData, insights });
     }
 
     res.json({ report: reportData, insights: "Upgrade to premium for AI insights" });
   } catch (error) {
+    if (error instanceof AICreditExhaustedError) return res.status(402).json({ error: error.message, balance: error.balance, required: error.required });
     console.error("Error generating report:", error);
     res.status(500).json({ error: "Failed to generate report" });
   }
@@ -224,9 +232,10 @@ aiRouter.post("/invoice-insights", async (req: AuthedRequest, res) => {
       return res.status(402).json({ error: "This feature requires Vertex AI to be enabled" });
     }
 
-    const insights = await getInvoiceInsightsWithVertexAI(invoice);
+    const insights = await withAICredit(req.businessId!, req.userId!, "invoiceInsights", () => getInvoiceInsightsWithVertexAI(invoice));
     res.json({ invoiceId: invoice.id, insights });
   } catch (error) {
+    if (error instanceof AICreditExhaustedError) return res.status(402).json({ error: error.message, balance: error.balance, required: error.required });
     console.error("Error getting invoice insights:", error);
     res.status(500).json({ error: "Failed to get insights" });
   }
