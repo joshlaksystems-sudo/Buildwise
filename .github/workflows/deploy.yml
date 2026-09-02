@@ -79,6 +79,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Clean stale Vercel config
+        run: rm -rf .vercel
+
       - name: Deploy to Vercel
         uses: amondnet/vercel-action@v25
         with:
@@ -115,6 +118,9 @@ jobs:
           VITE_GCS_BUCKET: ${{ secrets.VITE_GCS_BUCKET }}
           VITE_GCP_PROJECT_ID: ${{ secrets.VITE_GCP_PROJECT_ID }}
         run: npm run build
+
+      - name: Clean stale Vercel config
+        run: rm -rf .vercel
 
       - name: Deploy to Vercel
         uses: amondnet/vercel-action@v25
