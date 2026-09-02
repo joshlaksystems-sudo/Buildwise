@@ -11,51 +11,30 @@ function storeSession(data: any) {
 }
 
 export function Login() {
-  const [step, setStep] = useState<"identifier" | "code" | "newAccount">("identifier");
-  const [identifier, setIdentifier] = useState("");
-  const [code, setCode] = useState("");
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [devCode, setDevCode] = useState("");
   const navigate = useNavigate();
 
-  const isEmail = identifier.includes("@");
-
-  async function requestCode(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      const res = await api<any>("/auth/otp/request", { method: "POST", body: JSON.stringify({ identifier }) });
-      if (res.devCode) setDevCode(res.devCode); // dev convenience only — backend omits this in production
-      setStep("code");
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function verifyCode(e: FormEvent, extra?: { name: string; businessName: string }) {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-    try {
-      const data = await api<any>("/auth/otp/verify", {
-        method: "POST",
-        body: JSON.stringify({ identifier, code, ...extra }),
-      });
+      const path = mode === "login" ? "/auth/login" : "/auth/signup";
+      const body = mode === "login"
+        ? { identifier: email, password }
+        : { identifier: email, password, name, businessName };
+      const data = await api<any>(path, { method: "POST", body: JSON.stringify(body) });
       storeSession(data);
       initSync();
       navigate("/");
     } catch (err: any) {
-      if (err.message.includes("First-time login")) {
-        setStep("newAccount");
-      } else {
-        setError(err.message);
-      }
+      setError(err.message || "Unable to continue");
     } finally {
       setLoading(false);
     }
@@ -66,61 +45,38 @@ export function Login() {
       <div style={{ width: 380, background: "var(--paper-raised)", padding: 32, border: "1px solid var(--rule)" }}>
         <h1 style={{ fontSize: 24, marginBottom: 6 }}>{import.meta.env.VITE_PRODUCT_NAME || "Buildwise"}</h1>
         <p style={{ color: "var(--ink-soft)", fontSize: 13, marginBottom: 24 }}>
-          Log in with your email or mobile number.
+          {mode === "login" ? "Log in with your email and password." : "Create your account with email and password."}
         </p>
 
-        {step === "identifier" && (
-          <form onSubmit={requestCode}>
-            <Field label="Email or mobile number" value={identifier} onChange={setIdentifier} />
-            {error && <p style={{ color: "var(--red)", fontSize: 13 }}>{error}</p>}
-            <button type="submit" style={{ width: "100%" }} disabled={loading || !identifier}>
-              {loading ? "Sending…" : "Send OTP"}
-            </button>
-          </form>
-        )}
+        <form onSubmit={submit}>
+          {mode === "register" && <Field label="Your name" value={name} onChange={setName} />}
+          {mode === "register" && <Field label="Business name" value={businessName} onChange={setBusinessName} />}
+          <Field label="Email address" type="email" value={email} onChange={setEmail} />
+          <Field label="Password" type="password" value={password} onChange={setPassword} />
+          {error && <p style={{ color: "var(--red)", fontSize: 13 }}>{error}</p>}
+          <button type="submit" style={{ width: "100%" }} disabled={loading || !email || password.length < 8 || (mode === "register" && (!name || !businessName))}>
+            {loading ? "Please wait..." : mode === "login" ? "Log in" : "Create account"}
+          </button>
+        </form>
 
-        {step === "code" && (
-          <form onSubmit={(e) => verifyCode(e)}>
-            <p style={{ fontSize: 13, color: "var(--ink-soft)" }}>
-              Enter the 6-digit code sent to your {isEmail ? "email" : "phone"}.
-            </p>
-            {devCode && (
-              <p style={{ fontSize: 12, color: "var(--gold)" }}>Dev mode — your code is {devCode}</p>
-            )}
-            <Field label="OTP code" value={code} onChange={setCode} />
-            {error && <p style={{ color: "var(--red)", fontSize: 13 }}>{error}</p>}
-            <button type="submit" style={{ width: "100%" }} disabled={loading || code.length !== 6}>
-              {loading ? "Verifying…" : "Verify & continue"}
-            </button>
-            <button type="button" className="secondary" style={{ width: "100%", marginTop: 8 }} onClick={() => setStep("identifier")}>
-              Use a different email/mobile
-            </button>
-          </form>
-        )}
-
-        {step === "newAccount" && (
-          <form onSubmit={(e) => verifyCode(e, { name, businessName })}>
-            <p style={{ fontSize: 13, color: "var(--ink-soft)" }}>
-              We don't recognize this {isEmail ? "email" : "number"} — set up your shop.
-            </p>
-            <Field label="Your name" value={name} onChange={setName} />
-            <Field label="Business name" value={businessName} onChange={setBusinessName} />
-            {error && <p style={{ color: "var(--red)", fontSize: 13 }}>{error}</p>}
-            <button type="submit" style={{ width: "100%" }} disabled={loading || !name || !businessName}>
-              {loading ? "Creating…" : "Create account"}
-            </button>
-          </form>
-        )}
+        <button
+          type="button"
+          className="secondary"
+          style={{ width: "100%", marginTop: 8 }}
+          onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}
+        >
+          {mode === "login" ? "Create a new account" : "Already have an account? Log in"}
+        </button>
       </div>
     </div>
   );
 }
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function Field({ label, type = "text", value, onChange }: { label: string; type?: string; value: string; onChange: (v: string) => void }) {
   return (
     <label style={{ display: "block", marginBottom: 14, fontSize: 13, color: "var(--ink-soft)" }}>
       {label}
-      <input value={value} onChange={(e) => onChange(e.target.value)} required style={{ display: "block", width: "100%", marginTop: 4 }} />
+      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} required minLength={type === "password" ? 8 : undefined} style={{ display: "block", width: "100%", marginTop: 4 }} />
     </label>
   );
 }

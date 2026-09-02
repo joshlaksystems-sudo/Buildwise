@@ -108,6 +108,10 @@ async function getGmailAccessToken() {
 }
 
 async function sendEmailOtp(email: string, code: string) {
+  await sendGmailEmail(email, "Your YardLogic OTP", formatOtpMessage(email, code));
+}
+
+async function sendGmailEmail(email: string, subject: string, message: string) {
   const from = process.env.GMAIL_FROM_EMAIL;
   const accessToken = await getGmailAccessToken();
 
@@ -115,11 +119,11 @@ async function sendEmailOtp(email: string, code: string) {
     const body = [
       `From: ${from}`,
       `To: ${email}`,
-      "Subject: Your YardLogic OTP",
+      `Subject: ${subject}`,
       "MIME-Version: 1.0",
       "Content-Type: text/plain; charset=utf-8",
       "",
-      formatOtpMessage(email, code),
+      message,
     ].join("\r\n");
     const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
       method: "POST",
@@ -127,14 +131,23 @@ async function sendEmailOtp(email: string, code: string) {
       body: JSON.stringify({ raw: encodeBase64Url(body) }),
     });
     if (!response.ok) throw new Error(`Gmail send failed: ${response.status} ${await response.text()}`);
-    return;
+    return true;
   }
 
   if (process.env.NODE_ENV === "production") {
     throw new Error("Gmail is not configured. Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, and GMAIL_FROM_EMAIL.");
   }
 
-  console.log(`[dev] Would email OTP ${code} to ${email}`);
+  console.log(`[dev] Would email ${subject} to ${email}`);
+  return false;
+}
+
+export async function sendWelcomeEmail(email: string, name: string) {
+  return sendGmailEmail(
+    email,
+    "Welcome to YardLogic",
+    `Hello ${name},\n\nYour YardLogic account has been created successfully. You can now log in with your email address and password.\n\nRegards,\nYardLogic`
+  );
 }
 
 export async function sendOtp(identifier: string, code: string) {

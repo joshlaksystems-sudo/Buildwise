@@ -4,7 +4,7 @@ import { z } from "zod";
 import { authenticator } from "otplib";
 import { prisma } from "../lib/prisma";
 import { signToken, requireAuth, AuthedRequest } from "../middleware/auth";
-import { sendOtp } from "../services/notifyService";
+import { sendOtp, sendWelcomeEmail } from "../services/notifyService";
 
 export const authRouter = Router();
 
@@ -26,7 +26,7 @@ function isEmail(v: string) {
 
 const signupSchema = z.object({
   name: z.string().min(1),
-  identifier: z.string().min(3), // email or phone
+  identifier: z.string().email(),
   password: z.string().min(8),
   businessName: z.string().min(1),
 });
@@ -51,6 +51,7 @@ authRouter.post("/signup", async (req, res) => {
   });
 
   const full = await userWithBusinesses(user.id);
+  await sendWelcomeEmail(identifier, name);
   res.status(201).json({ token: signToken(user.id), user: { id: user.id, name: user.name }, businesses: full!.businesses });
 });
 
@@ -119,7 +120,7 @@ authRouter.post("/2fa/disable", requireAuth, async (req: AuthedRequest, res) => 
 
 // ---------- OTP login (email or mobile, no password) ----------
 
-const otpRequestSchema = z.object({ identifier: z.string().min(3) });
+const otpRequestSchema = z.object({ identifier: z.string().email() });
 
 authRouter.post("/otp/request", async (req, res) => {
   const parsed = otpRequestSchema.safeParse(req.body);
@@ -140,7 +141,7 @@ authRouter.post("/otp/request", async (req, res) => {
 });
 
 const otpVerifySchema = z.object({
-  identifier: z.string().min(3),
+  identifier: z.string().email(),
   code: z.string().length(6),
   // only needed the first time — creates the account + first business
   name: z.string().optional(),

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { cacheInvoicePdf, getCachedInvoicePdf } from "../lib/offlineDb";
 
 interface Line { name: string; quantity: number; unitPrice: number; taxRate: number; discount: number }
 
@@ -35,18 +36,27 @@ export function Invoices() {
   // headers the PDF route requires, so we fetch it as a blob and
   // open that instead.
   async function downloadPdf(id: string, number: string) {
-    const token = localStorage.getItem("token");
-    const businessId = localStorage.getItem("businessId");
-    const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:4000"}/invoices/${id}/pdf`, {
-      headers: { Authorization: `Bearer ${token}`, "X-Business-Id": businessId || "" },
-    });
-    const blob = await res.blob();
+    let blob: Blob | null = null;
+    if (navigator.onLine) {
+      const token = localStorage.getItem("token");
+      const businessId = localStorage.getItem("businessId");
+      const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:4000"}/invoices/${id}/pdf`, {
+        headers: { Authorization: `Bearer ${token}`, "X-Business-Id": businessId || "" },
+      });
+      if (res.ok) {
+        blob = await res.blob();
+        await cacheInvoicePdf(id, blob);
+      }
+    }
+    blob ||= await getCachedInvoicePdf(id);
+    if (!blob) throw new Error("Invoice PDF is not cached on this device and the server is unavailable");
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = `${number}.pdf`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   async function shareOnWhatsApp(id: string) {

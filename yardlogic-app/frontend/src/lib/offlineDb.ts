@@ -26,6 +26,9 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains("meta")) {
         db.createObjectStore("meta", { keyPath: "key" });
       }
+      if (!db.objectStoreNames.contains("invoicePdfs")) {
+        db.createObjectStore("invoicePdfs", { keyPath: "invoiceId" });
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -82,6 +85,15 @@ export async function getOutbox(): Promise<OutboxEntry[]> {
 
 export async function clearOutboxEntry(outboxId: number): Promise<void> {
   await withStore("outbox", "readwrite", (s) => s.delete(outboxId));
+}
+
+export async function cacheInvoicePdf(invoiceId: string, blob: Blob): Promise<void> {
+  await withStore("invoicePdfs", "readwrite", (s) => s.put({ invoiceId, blob, cachedAt: new Date().toISOString() }));
+}
+
+export async function getCachedInvoicePdf(invoiceId: string): Promise<Blob | null> {
+  const result = await withStore<any>("invoicePdfs", "readonly", (s) => s.get(invoiceId));
+  return result?.blob ?? null;
 }
 
 // ---------- Sync bookkeeping ----------
