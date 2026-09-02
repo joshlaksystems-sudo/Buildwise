@@ -19,9 +19,37 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: yardlogic-app/backend/package-lock.json
+
+      - name: Validate required deployment secrets
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          GOOGLE_CLOUD_PROJECT_ID: ${{ secrets.GOOGLE_CLOUD_PROJECT_ID }}
+          GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
+          BIGQUERY_DATASET: ${{ secrets.BIGQUERY_DATASET }}
+          BIGQUERY_REGION: ${{ secrets.BIGQUERY_REGION }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_BACKEND_PROJECT_ID: ${{ secrets.VERCEL_BACKEND_PROJECT_ID }}
+          VERCEL_FRONTEND_PROJECT_ID: ${{ secrets.VERCEL_FRONTEND_PROJECT_ID }}
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+          GMAIL_FROM_EMAIL: ${{ secrets.GMAIL_FROM_EMAIL }}
+        run: |
+          set -euo pipefail
+          for name in DATABASE_URL JWT_SECRET GCP_SERVICE_ACCOUNT_KEY GOOGLE_CLOUD_PROJECT_ID GCS_BUCKET BIGQUERY_DATASET BIGQUERY_REGION VERCEL_TOKEN VERCEL_ORG_ID VERCEL_BACKEND_PROJECT_ID VERCEL_FRONTEND_PROJECT_ID VITE_API_URL GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET GMAIL_REFRESH_TOKEN GMAIL_FROM_EMAIL; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required GitHub secret: $name"
+              exit 1
+            fi
+          done
+          echo "Required deployment secrets are present."
 
       - name: Install dependencies
         run: npm ci
@@ -37,28 +65,27 @@ jobs:
       # with normal deploy behavior for future changes.
       - name: Apply Prisma migrations to Neon (non-destructive)
         run: |
-          npx prisma migrate deploy || (
-            echo "Prisma migration deploy failed; baselining existing database history..." &&
-            npx prisma migrate resolve --applied 20260902021645_init || true &&
-            npx prisma migrate resolve --applied 20260902025148_add_business_profile_and_purchase_bills || true &&
-            npx prisma migrate resolve --applied 20260902044054_add_payment_reconciliation || true &&
-            npx prisma migrate resolve --applied 20260902045104_add_notifications_system || true &&
-            npx prisma migrate deploy || exit 1
-          )
+          if ! npx prisma migrate deploy; then
+            echo "Recovering the known failed AI wallet migration before retrying..."
+            npx prisma migrate resolve --rolled-back 20260902052000_add_ai_wallet
+            npx prisma migrate deploy
+          fi
 
       - name: Clean stale Vercel config
         run: rm -rf .vercel
 
-      # Non-destructive: creates the dataset/tables only if missing,
-      # never alters or drops existing ones.
-      - name: Ensure BigQuery dataset & tables exist
+      # Non-destructive: the schema uses CREATE IF NOT EXISTS throughout,
+      # so deploying it creates missing tables without dropping data.
+      - name: Apply complete BigQuery schema
         env:
           GOOGLE_APPLICATION_CREDENTIALS_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
           GOOGLE_CLOUD_PROJECT_ID: ${{ secrets.GOOGLE_CLOUD_PROJECT_ID }}
           BIGQUERY_DATASET: ${{ secrets.BIGQUERY_DATASET }}
           BIGQUERY_REGION: ${{ secrets.BIGQUERY_REGION }}
         run: |
+          set -euo pipefail
           echo "$GOOGLE_APPLICATION_CREDENTIALS_JSON" > /tmp/gcp-key.json
+          trap 'rm -f /tmp/gcp-key.json /tmp/bigquery-schema.sql' EXIT
           gcloud auth activate-service-account --key-file=/tmp/gcp-key.json
           gcloud config set project "$GOOGLE_CLOUD_PROJECT_ID"
 
@@ -66,15 +93,19 @@ jobs:
             bq mk --dataset --location="$BIGQUERY_REGION" "${GOOGLE_CLOUD_PROJECT_ID}:${BIGQUERY_DATASET}"
           fi
 
-          for t in invoices payments expenses; do
-            if ! bq show --table "${GOOGLE_CLOUD_PROJECT_ID}:${BIGQUERY_DATASET}.${t}" > /dev/null 2>&1; then
-              bq mk --table "${GOOGLE_CLOUD_PROJECT_ID}:${BIGQUERY_DATASET}.${t}" "bigquery/${t}_schema.json" || \
-                echo "Table ${t} already exists or creation failed; continuing."
-            else
-              echo "Table ${t} already exists, skipping creation."
-            fi
-          done
-          rm -f /tmp/gcp-key.json
+          # The schema file is one directory above this job's working directory.
+          # Remove its standalone CREATE SCHEMA statement because the dataset
+          # above is authoritative for location and already exists by this point.
+          sed \
+            -e "s/YOUR_PROJECT\\.khatabook/${GOOGLE_CLOUD_PROJECT_ID}.${BIGQUERY_DATASET}/g" \
+            -e '/^CREATE SCHEMA IF NOT EXISTS/d' \
+            -e "/^OPTIONS (location = 'US');/d" \
+            ../bigquery/schema.sql > /tmp/bigquery-schema.sql
+
+          bq query \
+            --project_id="$GOOGLE_CLOUD_PROJECT_ID" \
+            --location="$BIGQUERY_REGION" \
+            --use_legacy_sql=false < /tmp/bigquery-schema.sql
 
       - name: Build
         run: npm run build
