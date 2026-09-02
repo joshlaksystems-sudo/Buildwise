@@ -7,11 +7,17 @@ reportsRouter.use(requireAuth);
 
 reportsRouter.get("/summary", async (req: AuthedRequest, res) => {
   const businessId = req.businessId!;
+  const from = typeof req.query.from === "string" ? new Date(req.query.from) : null;
+  const to = typeof req.query.to === "string" ? new Date(req.query.to) : null;
+  if (from && Number.isNaN(from.getTime())) return res.status(400).json({ error: "Invalid from date" });
+  if (to && Number.isNaN(to.getTime())) return res.status(400).json({ error: "Invalid to date" });
+  if (from && to && from > to) return res.status(400).json({ error: "from date must be before to date" });
+  const createdAt = from || to ? { ...(from ? { gte: from } : {}), ...(to ? { lt: to } : {}) } : undefined;
   const [invoices, expenses, purchaseBills, payments] = await Promise.all([
-    prisma.invoice.findMany({ where: { businessId }, include: { items: true } }),
-    prisma.expense.findMany({ where: { businessId } }),
-    prisma.purchaseBill.findMany({ where: { businessId } }),
-    prisma.payment.findMany({ where: { businessId } }),
+    prisma.invoice.findMany({ where: { businessId, createdAt }, include: { items: true } }),
+    prisma.expense.findMany({ where: { businessId, createdAt } }),
+    prisma.purchaseBill.findMany({ where: { businessId, createdAt } }),
+    prisma.payment.findMany({ where: { businessId, createdAt } }),
   ]);
 
   const totalSales = invoices.reduce((s, i) => s + i.grandTotal, 0);
@@ -70,7 +76,8 @@ reportsRouter.get("/summary", async (req: AuthedRequest, res) => {
     cashFlowTrend,
     invoiceCount: invoices.length,
     purchaseBillCount: purchaseBills.length,
-    netProfitEstimate: totalSales - totalExpenses,
+    netProfitEstimate: totalSales - totalPurchases - totalExpenses,
+    period: { from: from?.toISOString() ?? null, to: to?.toISOString() ?? null },
   });
 });
 

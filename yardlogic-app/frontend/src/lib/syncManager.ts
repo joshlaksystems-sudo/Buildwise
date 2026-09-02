@@ -80,7 +80,7 @@ export async function pullChanges() {
     return;
   }
 
-  const models: SyncableModel[] = ["item", "customer", "supplier", "invoice", "expense", "payment", "deliveryChallan", "estimate"];
+  const models: SyncableModel[] = ["item", "customer", "supplier", "expense"];
   let latest = since;
   for (const model of models) {
     const data = await api<any>(`/sync/pull?model=${model}&since=${encodeURIComponent(since)}`);

@@ -15,8 +15,14 @@ export function Invoices() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [customerId, setCustomerId] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
   const [invoiceType, setInvoiceType] = useState("GST");
+  const [amountPaid, setAmountPaid] = useState(0);
+  const [paymentMode, setPaymentMode] = useState("CASH");
   const [dueDate, setDueDate] = useState("");
+  const [followUpDate, setFollowUpDate] = useState("");
   const [notes, setNotes] = useState("");
   const [terms, setTerms] = useState("");
   const [error, setError] = useState("");
@@ -55,10 +61,10 @@ export function Invoices() {
     try {
       const idempotencyKey = requestId || crypto.randomUUID();
       if (!requestId) setRequestId(idempotencyKey);
-      await api("/invoices", { method: "POST", headers: { "X-Idempotency-Key": idempotencyKey }, body: JSON.stringify({ customerId: customerId || undefined, type: invoiceType, lines, amountPaid: subTotal + tax, paymentMode: "CASH", dueDate: dueDate ? new Date(`${dueDate}T00:00:00.000Z`).toISOString() : undefined, notes: notes || undefined, terms: terms || undefined }) });
+      await api("/invoices", { method: "POST", headers: { "X-Idempotency-Key": idempotencyKey }, body: JSON.stringify({ customerId: customerId || undefined, customerName: customerName || undefined, customerPhone: customerPhone || undefined, customerEmail: customerEmail || undefined, type: invoiceType, lines, amountPaid, paymentMode: amountPaid > 0 ? paymentMode : undefined, dueDate: dueDate ? new Date(`${dueDate}T00:00:00.000Z`).toISOString() : undefined, followUpDate: followUpDate ? new Date(`${followUpDate}T00:00:00.000Z`).toISOString() : undefined, notes: notes || undefined, terms: terms || undefined }) });
       setLines([{ name: "", quantity: 1, unitPrice: 0, taxRate: 18, discount: 0 }]);
-      setCustomerId("");
-      setDueDate(""); setNotes(""); setTerms("");
+      setCustomerId(""); setCustomerName(""); setCustomerPhone(""); setCustomerEmail("");
+      setAmountPaid(0); setPaymentMode("CASH"); setDueDate(""); setFollowUpDate(""); setNotes(""); setTerms("");
       setRequestId(null);
       refresh();
     } catch (requestError) {
@@ -125,10 +131,10 @@ export function Invoices() {
             {(business.stateName || business.ownerPhone) && <div>{[business.stateName, business.ownerPhone].filter(Boolean).join(" | ")}</div>}
           </div>
         )}
-        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          <label>Customer
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 16 }}>
+          <label>Customer (optional)
           <select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
-            <option value="">Walk-in customer</option>
+            <option value="">Walk-in / enter below</option>
             {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
           </select>
           </label>
@@ -139,9 +145,15 @@ export function Invoices() {
             <option value="POS">POS invoice</option>
           </select>
           </label>
+          {!customerId && <label>Customer name (optional)<input placeholder="Leave blank for anonymous sale" value={customerName} onChange={(e) => setCustomerName(e.target.value)} /></label>}
+          {!customerId && <label>Mobile (optional)<input placeholder="10-digit mobile number" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} /></label>}
+          {!customerId && <label>Email (optional)<input type="email" placeholder="customer@example.com" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} /></label>}
         </div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          <label>Due date<input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></label>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 16 }}>
+          <label>Due date (optional)<input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></label>
+          <label>Amount paid<input type="number" min="0" max={subTotal + tax} value={amountPaid} onChange={(e) => setAmountPaid(Math.max(0, Number(e.target.value)))} /></label>
+          {amountPaid > 0 && <label>Payment mode<select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}><option>CASH</option><option>UPI</option><option>CARD</option><option>BANK_TRANSFER</option><option>CHEQUE</option></select></label>}
+          {amountPaid < subTotal + tax && <label>Credit follow-up date<input type="date" value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} required /></label>}
           <label>Notes<input placeholder="Optional note for customer" value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
           <label>Terms<input placeholder="Payment terms or conditions" value={terms} onChange={(e) => setTerms(e.target.value)} /></label>
         </div>
@@ -160,10 +172,11 @@ export function Invoices() {
 
         <div style={{ marginTop: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div className="numeral" style={{ fontSize: 18 }}>
-            Total: ₹{(subTotal + tax).toFixed(2)} <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>(incl. ₹{tax.toFixed(2)} GST)</span>
+            <div>Total: Rs. {(subTotal + tax).toFixed(2)}</div>
+            <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>GST: Rs. {tax.toFixed(2)} | Paid: Rs. {amountPaid.toFixed(2)} | Balance: Rs. {Math.max(0, subTotal + tax - amountPaid).toFixed(2)}</div>
           </div>
-          <button className="gold" onClick={submit} disabled={creating || !lines[0].name}>
-            {creating ? "Creating…" : "Create & mark paid"}
+          <button className="gold" onClick={submit} disabled={creating || !lines[0].name || amountPaid > subTotal + tax || (amountPaid < subTotal + tax && !followUpDate)}>
+            {creating ? "Creating..." : amountPaid < subTotal + tax ? "Create credit invoice" : "Create paid invoice"}
           </button>
         </div>
       </section>

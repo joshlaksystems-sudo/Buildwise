@@ -368,6 +368,9 @@ model Invoice {
   id            String        @id @default(uuid())
   businessId    String
   customerId    String?
+  customerName  String? // Snapshot for walk-in customers or historical accuracy
+  customerPhone String?
+  customerEmail String?
   number        String
   type          InvoiceType   @default(GST)
   status        InvoiceStatus @default(UNPAID)
@@ -376,6 +379,7 @@ model Invoice {
   taxTotal      Float         @default(0)
   grandTotal    Float
   amountPaid    Float         @default(0)
+  followUpDate  DateTime? // Used only when a balance remains due
   paymentMode   PaymentMode?
   dueDate       DateTime?
   notes         String?
@@ -573,6 +577,10 @@ model Expense {
   category             String?
   amount               Float
   taxAmount            Float    @default(0)
+  paymentDate          DateTime @default(now())
+  isRecurring           Boolean  @default(false)
+  recurrenceFrequency  String? // MONTHLY | WEEKLY | YEARLY
+  referenceNumber      String?
   note                 String?
   sourceImageUrl       String?
   aiCategoryConfidence Float? // set when OCR/AI auto-tagged this
@@ -762,6 +770,9 @@ model ComplianceDocument {
   mimeType    String
   storageUrl  String?
   storagePath String?
+  aiDocumentType String?
+  aiConfidence Float?
+  extractedData Json?
   createdAt   DateTime @default(now())
 
   business Business @relation(fields: [businessId], references: [id])
@@ -831,6 +842,7 @@ model PaymentReminder {
   customerId String?
   channel    String // WHATSAPP | SMS | EMAIL
   status     String    @default("PENDING") // PENDING | SENT | FAILED
+  scheduledFor DateTime?
   sentAt     DateTime?
   createdAt  DateTime  @default(now())
 

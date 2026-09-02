@@ -3,7 +3,7 @@
 // the same UUID the server uses), plus one `outbox` store holding
 // rows created/edited offline that haven't reached the server yet.
 
-export const SYNCABLE_MODELS = ["item", "customer", "supplier", "invoice", "expense", "payment", "deliveryChallan", "estimate"] as const;
+export const SYNCABLE_MODELS = ["item", "customer", "supplier", "expense"] as const;
 export type SyncableModel = (typeof SYNCABLE_MODELS)[number];
 
 const DB_NAME = "joshlak-offline";

@@ -153,6 +153,9 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.invoices` (
   id              STRING NOT NULL,
   business_id     STRING NOT NULL,
   customer_id     STRING,
+  customer_name   STRING,
+  customer_phone  STRING,
+  customer_email  STRING,
   number          STRING NOT NULL,
   type            STRING DEFAULT 'GST' NOT NULL,
   status          STRING DEFAULT 'UNPAID' NOT NULL,
@@ -161,6 +164,7 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.invoices` (
   tax_total       FLOAT64 DEFAULT 0,
   grand_total     FLOAT64 NOT NULL,
   amount_paid     FLOAT64 DEFAULT 0,
+  follow_up_date  TIMESTAMP,
   payment_mode    STRING,
   due_date        TIMESTAMP,
   notes           STRING,
@@ -297,6 +301,10 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.expenses` (
   category                STRING,
   amount                  FLOAT64 NOT NULL,
   tax_amount              FLOAT64 DEFAULT 0,
+  payment_date            TIMESTAMP,
+  is_recurring            BOOL DEFAULT FALSE,
+  recurrence_frequency    STRING,
+  reference_number        STRING,
   note                    STRING,
   source_image_url        STRING,
   ai_category_confidence  FLOAT64,   -- NULL if manually entered, 0-1 if AI-tagged
@@ -513,6 +521,7 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.payment_reminders` (
   customer_id  STRING,
   channel      STRING NOT NULL,
   status       STRING DEFAULT 'PENDING' NOT NULL,
+  scheduled_for TIMESTAMP,
   sent_at      TIMESTAMP,
   created_at   TIMESTAMP NOT NULL
 )
@@ -529,6 +538,9 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.compliance_documents` (
   mime_type         STRING NOT NULL,
   storage_url       STRING,
   storage_path      STRING,
+  ai_document_type  STRING,
+  ai_confidence     FLOAT64,
+  extracted_data    JSON,
   created_at        TIMESTAMP NOT NULL
 )
 PARTITION BY DATE(created_at)

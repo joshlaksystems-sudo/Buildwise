@@ -36,6 +36,7 @@ export function Dashboard() {
   const [business, setBusiness] = useState<Business | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [period, setPeriod] = useState("month");
 
   const businessId = localStorage.getItem("businessId") || "";
 
@@ -44,7 +45,7 @@ export function Dashboard() {
       try {
         setLoading(true);
         const [summaryData, itemsData, businessData] = await Promise.all([
-          api("/reports/summary").catch(() => ({})),
+          api(`/reports/summary${periodQuery(period)}`).catch(() => ({})),
           api("/items/low-stock").catch(() => []),
           api(`/business/${businessId}`).catch(() => null),
         ]);
@@ -67,7 +68,7 @@ export function Dashboard() {
     if (businessId) {
       loadDashboard();
     }
-  }, [businessId]);
+  }, [businessId, period]);
 
   const handleProfileComplete = () => {
     setShowProfileModal(false);
@@ -106,6 +107,11 @@ export function Dashboard() {
             day: "numeric",
           })}
         </p>
+        <div className="dashboard-periods" aria-label="Dashboard period">
+          {[['today', 'Today'], ['week', 'This week'], ['month', 'This month'], ['quarter', 'This quarter'], ['year', 'This year']].map(([value, label]) => (
+            <button key={value} className={period === value ? "gold" : "secondary"} onClick={() => setPeriod(value)}>{label}</button>
+          ))}
+        </div>
 
         {/* Top KPI Cards */}
         <div className="kpi-section">
@@ -219,6 +225,18 @@ export function Dashboard() {
       </div>
     </>
   );
+}
+
+function periodQuery(period: string) {
+  const now = new Date();
+  const from = new Date(now);
+  if (period === "today") from.setHours(0, 0, 0, 0);
+  else if (period === "week") from.setDate(now.getDate() - 6);
+  else if (period === "month") from.setDate(1);
+  else if (period === "quarter") from.setMonth(Math.floor(now.getMonth() / 3) * 3, 1);
+  else if (period === "year") from.setMonth(3, 1);
+  if (period === "year" && now.getMonth() < 3) from.setFullYear(now.getFullYear() - 1);
+  return `?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(new Date(now.getTime() + 86400000).toISOString())}`;
 }
 
 interface KPICardProps {

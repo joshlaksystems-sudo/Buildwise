@@ -28,6 +28,8 @@ export function Expenses() {
   const [lastResult, setLastResult] = useState<CategorizeResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
+  const [manual, setManual] = useState({ category: "Rent", amount: "", taxAmount: "", note: "" });
+  const expenseCategories = ["Salaries", "Rent", "Electricity", "Water", "Internet", "Telephone", "Transport", "Fuel", "Office supplies", "Repairs", "Maintenance", "Bank charges", "Loan interest", "Advertising", "Insurance", "Taxes", "Software subscriptions", "Miscellaneous"];
 
   function refresh() {
     api("/expenses")
@@ -37,6 +39,15 @@ export function Expenses() {
   }
 
   useEffect(refresh, []);
+
+  async function addManualExpense() {
+    const amount = Number(manual.amount);
+    const taxAmount = Number(manual.taxAmount || 0);
+    if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(taxAmount) || taxAmount < 0) return;
+    await api("/expenses", { method: "POST", body: JSON.stringify({ category: manual.category, amount, taxAmount, note: manual.note || undefined }) });
+    setManual({ category: "Rent", amount: "", taxAmount: "", note: "" });
+    refresh();
+  }
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -108,6 +119,17 @@ export function Expenses() {
     <div className="expenses-page">
       <h1>Expenses</h1>
       <p className="page-subtitle">Manage and categorize business expenses</p>
+
+      <div className="categorize-section">
+        <div className="categorize-header"><h2>Manual expense entry</h2><p>Record salaries, rent, bills, and any other business cost.</p></div>
+        <div className="form-row">
+          <div className="form-group"><label>Category</label><select value={manual.category} onChange={(e) => setManual({ ...manual, category: e.target.value })}>{expenseCategories.map((category) => <option key={category}>{category}</option>)}</select></div>
+          <div className="form-group"><label>Amount *</label><input type="number" min="0.01" placeholder="e.g. 25000" value={manual.amount} onChange={(e) => setManual({ ...manual, amount: e.target.value })} /></div>
+          <div className="form-group"><label>GST/tax</label><input type="number" min="0" placeholder="0" value={manual.taxAmount} onChange={(e) => setManual({ ...manual, taxAmount: e.target.value })} /></div>
+          <div className="form-group"><label>Note</label><input placeholder="Optional note" value={manual.note} onChange={(e) => setManual({ ...manual, note: e.target.value })} /></div>
+        </div>
+        <button className="btn-primary" onClick={addManualExpense} disabled={!manual.amount}>Add expense</button>
+      </div>
 
       {/* AI Categorization Section */}
       <div className="categorize-section">

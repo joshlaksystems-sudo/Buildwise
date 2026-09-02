@@ -389,6 +389,33 @@ export interface AIExpenseResult {
   reasoning: string;
 }
 
+export interface PurchaseBillExtraction {
+  supplierName: string | null;
+  supplierGstin: string | null;
+  billNumber: string | null;
+  billDate: string | null;
+  items: { name: string; quantity: number; unitPrice: number; taxRate: number; lineTotal: number }[];
+  subTotal: number;
+  taxTotal: number;
+  grandTotal: number;
+  confidence: number;
+  warnings: string[];
+}
+
+export interface DocumentOrganizationResult {
+  documentType: "GSTR1_SOURCE" | "GSTR2B_SOURCE" | "PURCHASE_BILL" | "EXPENSE_RECEIPT" | "BANK_STATEMENT" | "OTHER";
+  period: string | null;
+  confidence: number;
+  extractedData: Record<string, unknown>;
+  warnings: string[];
+}
+
+function parseVertexJson<T>(text: string): T {
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("Vertex AI did not return structured JSON");
+  return JSON.parse(jsonMatch[0]) as T;
+}
+
 // Check if subscription is active (required for Vertex AI)
 export async function isSubscriptionActive(businessId: string): Promise<boolean> {
   // TODO: Implement actual subscription check against your subscription table
@@ -430,17 +457,61 @@ Respond ONLY with valid JSON (no markdown, no preamble):
     }
 
     const text = content.text as string;
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-
-    if (!jsonMatch) {
-      throw new Error("Could not parse JSON from response");
-    }
-
-    return JSON.parse(jsonMatch[0]);
+    return parseVertexJson<AIExpenseResult>(text);
   } catch (error) {
     console.error("❌ Error with Vertex AI:", error);
     throw error;
   }
+}
+
+// Extracts a purchase bill for human review. This endpoint intentionally
+// returns data only; inventory and payable balances change only after the
+// user confirms the reviewed bill through the normal purchase-bill route.
+export async function extractPurchaseBillWithVertexAI(receiptText: string): Promise<PurchaseBillExtraction> {
+  if (!vertexAI) throw new Error("Vertex AI is not initialized");
+  if (process.env.VERTEX_AI_ENABLE !== "true") throw new Error("Vertex AI is disabled. Set VERTEX_AI_ENABLE=true");
+
+  const model = vertexAI.getGenerativeModel({
+    model: process.env.VERTEX_AI_MODEL_ID || "gemini-1.5-pro",
+    systemInstruction: `You extract purchase bills for an Indian accounting application. Read the OCR text and return ONLY valid JSON. Never invent missing values: use null and add a warning. Amounts are numbers in INR. Return exactly:
+{"supplierName":string|null,"supplierGstin":string|null,"billNumber":string|null,"billDate":"YYYY-MM-DD"|null,"items":[{"name":string,"quantity":number,"unitPrice":number,"taxRate":number,"lineTotal":number}],"subTotal":number,"taxTotal":number,"grandTotal":number,"confidence":number,"warnings":string[]}
+Use confidence from 0 to 1. If totals conflict with item calculations, keep the printed totals and add a warning.`
+  });
+  const response = await model.generateContent(receiptText);
+  const content = response.response.candidates?.[0]?.content?.parts?.[0];
+  if (!content || !("text" in content)) throw new Error("Invalid response from Vertex AI");
+  const result = parseVertexJson<PurchaseBillExtraction>(content.text as string);
+  if (!Array.isArray(result.items) || !Array.isArray(result.warnings) || !Number.isFinite(result.grandTotal)) {
+    throw new Error("Vertex AI returned an invalid purchase bill shape");
+  }
+  return result;
+}
+
+// Classifies an uploaded document and extracts searchable metadata. The
+// original file is still stored unchanged; AI only chooses its folder and
+// produces a reviewable index, never an accounting transaction.
+export async function organizeDocumentWithVertexAI(buffer: Buffer, mimeType: string, fileName: string): Promise<DocumentOrganizationResult> {
+  if (!vertexAI) throw new Error("Vertex AI is not initialized");
+  if (process.env.VERTEX_AI_ENABLE !== "true") throw new Error("Vertex AI is disabled. Set VERTEX_AI_ENABLE=true");
+
+  const model = vertexAI.getGenerativeModel({
+    model: process.env.VERTEX_AI_MODEL_ID || "gemini-1.5-pro",
+    systemInstruction: `You classify business documents for an Indian small business. Choose exactly one documentType: GSTR1_SOURCE, GSTR2B_SOURCE, PURCHASE_BILL, EXPENSE_RECEIPT, BANK_STATEMENT, OTHER. Extract only visible facts. Never invent values. Return ONLY JSON in this exact shape:
+{"documentType":"PURCHASE_BILL","period":"YYYY-MM"|null,"confidence":0.0,"extractedData":{},"warnings":[]}
+extractedData may include supplierName, supplierGstin, billNumber, invoiceNumber, total, taxTotal, bankName, accountLast4, transactionCount, or documentDate. Use warnings for unreadable or conflicting fields.`
+  });
+  const response = await model.generateContent([
+    { text: `Classify this file. Original filename: ${fileName}` },
+    { inlineData: { data: buffer.toString("base64"), mimeType } },
+  ]);
+  const content = response.response.candidates?.[0]?.content?.parts?.[0];
+  if (!content || !("text" in content)) throw new Error("Invalid response from Vertex AI");
+  const result = parseVertexJson<DocumentOrganizationResult>(content.text as string);
+  const allowed = ["GSTR1_SOURCE", "GSTR2B_SOURCE", "PURCHASE_BILL", "EXPENSE_RECEIPT", "BANK_STATEMENT", "OTHER"];
+  if (!allowed.includes(result.documentType) || !Number.isFinite(result.confidence) || result.confidence < 0 || result.confidence > 1 || !Array.isArray(result.warnings) || !result.extractedData) {
+    throw new Error("Vertex AI returned invalid document metadata");
+  }
+  return result;
 }
 
 // Generate report summary using Vertex AI
@@ -505,6 +576,20 @@ Consider: payment delays, customer patterns, potential issues.`;
     console.error("❌ Error getting invoice insights:", error);
     throw error;
   }
+}
+
+export async function answerBusinessQuestionWithVertexAI(question: string, data: Record<string, unknown>): Promise<string> {
+  if (!vertexAI) throw new Error("Vertex AI is not initialized");
+  if (process.env.VERTEX_AI_ENABLE !== "true") throw new Error("Vertex AI is disabled. Set VERTEX_AI_ENABLE=true");
+
+  const model = vertexAI.getGenerativeModel({
+    model: process.env.VERTEX_AI_MODEL_ID || "gemini-1.5-pro",
+    systemInstruction: "You are a careful business assistant for an Indian shop. Answer only from the supplied JSON. Never invent figures, never claim a GST return was filed, and say when data is missing. Keep the answer concise and use Rs. for money.",
+  });
+  const response = await model.generateContent(`Question: ${question}\n\nBusiness data:\n${JSON.stringify(data).slice(0, 16000)}`);
+  const content = response.response.candidates?.[0]?.content?.parts?.[0];
+  if (!content || !("text" in content)) throw new Error("Invalid response from Vertex AI");
+  return content.text as string;
 }
 
 // ============ EXPORT FOR USE IN ROUTES ============

@@ -30,12 +30,12 @@ const billSchema = z.object({
 });
 
 // Helper: generate next bill number
-async function getNextBillNumber(businessId: string): Promise<string> {
-  const business = await prisma.business.findUnique({ where: { id: businessId } });
+async function getNextBillNumber(businessId: string, client: any = prisma): Promise<string> {
+  const business = await client.business.findUnique({ where: { id: businessId } });
   const prefix = business?.invoicePrefix || "BILL";
   const startNum = business?.invoiceStartNumber || 1;
 
-  const lastBill = await prisma.purchaseBill.findFirst({
+  const lastBill = await client.purchaseBill.findFirst({
     where: { businessId },
     orderBy: { createdAt: "desc" },
   });
@@ -61,6 +61,12 @@ purchaseBillsRouter.post("/", async (req: AuthedRequest, res) => {
 
     const { supplierId, items, subTotal, discount, taxTotal, grandTotal, paymentMode, dueDate, referenceNumber } =
       parsed.data;
+    const calculatedSubTotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice - item.discount, 0);
+    const calculatedTaxTotal = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice - item.discount) * item.taxRate / 100, 0);
+    const calculatedGrandTotal = calculatedSubTotal + calculatedTaxTotal - discount;
+    if (Math.abs(calculatedSubTotal - subTotal) > 0.01 || Math.abs(calculatedTaxTotal - taxTotal) > 0.01 || Math.abs(calculatedGrandTotal - grandTotal) > 0.01) {
+      return res.status(422).json({ error: "Bill totals do not match the item lines" });
+    }
     if (clientRequestId) {
       const previous = await prisma.purchaseBill.findFirst({ where: { businessId: req.businessId, clientRequestId }, include: { items: true } });
       if (previous) return res.status(200).json(previous);
@@ -81,11 +87,10 @@ purchaseBillsRouter.post("/", async (req: AuthedRequest, res) => {
       return res.status(422).json({ error: "One or more items do not belong to this business" });
     }
 
-    // Get next bill number
-    const number = await getNextBillNumber(req.businessId!);
-
-    // Create bill with items
-    const bill = await prisma.purchaseBill.create({
+    const bill = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bill-number:${req.businessId}`}))`;
+      const number = await getNextBillNumber(req.businessId!, tx);
+      const created = await tx.purchaseBill.create({
       data: {
         businessId: req.businessId!,
         supplierId,
@@ -112,14 +117,12 @@ purchaseBillsRouter.post("/", async (req: AuthedRequest, res) => {
         },
       },
       include: { items: true },
-    });
+      });
 
-    // Auto-increment stock for each item
     for (const item of items) {
       if (item.itemId) {
-        // Update current stock
-        await prisma.item.update({
-          where: { id: item.itemId },
+        await tx.item.update({
+          where: { id: item.itemId, businessId: req.businessId },
           data: {
             currentStock: {
               increment: item.quantity,
@@ -128,18 +131,20 @@ purchaseBillsRouter.post("/", async (req: AuthedRequest, res) => {
         });
 
         // Log stock movement
-        await prisma.stockMovement.create({
+        await tx.stockMovement.create({
           data: {
             businessId: req.businessId!,
             itemId: item.itemId,
             change: item.quantity,
             reason: "PURCHASE",
-            refId: bill.id,
+            refId: created.id,
             note: `Bill #${number}`,
           },
         });
       }
     }
+    return created;
+    });
 
     // Log audit
     await writeAudit({

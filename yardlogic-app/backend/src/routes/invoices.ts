@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { AuthedRequest, requireAuth, signInvoiceAccessToken } from "../middleware/auth";
 import { generateInvoicePdf } from "../services/pdfService";
@@ -20,24 +21,28 @@ const lineSchema = z.object({
 
 const invoiceSchema = z.object({
   customerId: z.string().optional(),
+  customerName: z.string().trim().max(160).optional(),
+  customerPhone: z.string().trim().max(30).optional(),
+  customerEmail: z.string().trim().email().optional(),
   type: z.enum(["GST", "NON_GST", "POS"]).default("GST"),
   lines: z.array(lineSchema).min(1),
   paymentMode: z.enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"]).optional(),
   amountPaid: z.number().min(0).default(0),
   dueDate: z.string().datetime().optional(),
+  followUpDate: z.string().datetime().optional(),
   notes: z.string().trim().max(2000).optional(),
   terms: z.string().trim().max(2000).optional(),
 });
 
 // Automated, gap-free bill numbering per business: INV-0001, INV-0002...
-export async function nextInvoiceNumber(businessId: string) {
-  const business = await prisma.business.findUnique({
+export async function nextInvoiceNumber(businessId: string, client: Prisma.TransactionClient | typeof prisma = prisma) {
+  const business = await client.business.findUnique({
     where: { id: businessId },
     select: { invoicePrefix: true, invoiceStartNumber: true },
   });
   const prefix = business?.invoicePrefix || "INV";
   const startNumber = business?.invoiceStartNumber || 1;
-  const invoices = await prisma.invoice.findMany({
+  const invoices = await client.invoice.findMany({
     where: { businessId },
     select: { number: true },
   });
@@ -61,7 +66,7 @@ invoicesRouter.post("/", async (req: AuthedRequest, res) => {
   if (clientRequestId && clientRequestId.length > 120) return res.status(400).json({ error: "X-Idempotency-Key is too long" });
   const parsed = invoiceSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const { customerId, type, lines, paymentMode, amountPaid, dueDate, notes, terms } = parsed.data;
+  const { customerId, customerName, customerPhone, customerEmail, type, lines, paymentMode, amountPaid, dueDate, followUpDate, notes, terms } = parsed.data;
 
   let subTotal = 0;
   let taxTotal = 0;
@@ -79,6 +84,12 @@ invoicesRouter.post("/", async (req: AuthedRequest, res) => {
   if (amountPaid > grandTotal) {
     return res.status(422).json({ error: "Amount paid cannot be greater than the invoice total" });
   }
+  if (amountPaid < grandTotal && !followUpDate) {
+    return res.status(422).json({ error: "Add a follow-up date when the invoice has an outstanding balance" });
+  }
+  if (amountPaid >= grandTotal && followUpDate) {
+    return res.status(422).json({ error: "A fully paid invoice cannot have a follow-up date" });
+  }
 
   const itemIds = lines.flatMap((line) => line.itemId ? [line.itemId] : []);
   const ownedItems = await prisma.item.findMany({
@@ -89,9 +100,10 @@ invoicesRouter.post("/", async (req: AuthedRequest, res) => {
     return res.status(422).json({ error: "One or more items do not belong to this business" });
   }
 
+  let selectedCustomer: { id: string; name: string; phone: string | null; email: string | null } | null = null;
   if (customerId) {
-    const customer = await prisma.customer.findFirst({ where: { id: customerId, businessId: req.businessId }, select: { id: true } });
-    if (!customer) return res.status(404).json({ error: "Customer not found" });
+    selectedCustomer = await prisma.customer.findFirst({ where: { id: customerId, businessId: req.businessId }, select: { id: true, name: true, phone: true, email: true } });
+    if (!selectedCustomer) return res.status(404).json({ error: "Customer not found" });
   }
 
   if (clientRequestId) {
@@ -122,20 +134,25 @@ invoicesRouter.post("/", async (req: AuthedRequest, res) => {
     }
   }
 
-  const number = await nextInvoiceNumber(req.businessId!);
   const status = amountPaid >= grandTotal ? "PAID" : amountPaid > 0 ? "PARTIAL" : "UNPAID";
 
   const invoice = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`invoice-number:${req.businessId}`}))`;
+    const number = await nextInvoiceNumber(req.businessId!, tx);
     const created = await tx.invoice.create({
       data: {
         businessId: req.businessId!,
         customerId,
+        customerName: selectedCustomer?.name ?? customerName,
+        customerPhone: selectedCustomer?.phone ?? customerPhone,
+        customerEmail: selectedCustomer?.email ?? customerEmail,
         number,
         type,
         subTotal,
         taxTotal,
         grandTotal,
         amountPaid,
+        followUpDate: followUpDate ? new Date(followUpDate) : undefined,
         paymentMode,
         dueDate: dueDate ? new Date(dueDate) : undefined,
         notes,

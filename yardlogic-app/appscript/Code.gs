@@ -52,6 +52,15 @@ function pushRowsToBigQuery(table, rows) {
   return body;
 }
 
+// Apps Script Date values must be sent as ISO timestamps. Headers are also
+// normalized so a Sheet with createdAt/created_at cannot silently lose dates.
+function normalizeValue_(value) {
+  if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) {
+    return value.toISOString();
+  }
+  return value;
+}
+
 /**
  * Example: push every row of the active sheet's "Invoices" tab into
  * the invoices table, assuming column headers match the BigQuery
@@ -69,7 +78,7 @@ function syncInvoicesSheet() {
     .map((row) => {
       const obj = {};
       headers.forEach((header, i) => {
-        obj[header] = row[i];
+      obj[String(header).trim()] = normalizeValue_(row[i]);
       });
       return obj;
     });

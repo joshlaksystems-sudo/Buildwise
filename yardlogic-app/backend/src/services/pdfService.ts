@@ -19,10 +19,14 @@ interface InvoiceForPdf {
   grandTotal: number;
   amountPaid: number;
   dueDate?: Date | null;
+  followUpDate?: Date | null;
   notes?: string | null;
   terms?: string | null;
   business: { name: string; gstin?: string | null; address?: string | null; ownerName?: string | null; ownerPhone?: string | null; stateName?: string | null };
   customer?: { name: string; phone?: string | null; gstin?: string | null } | null;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  customerEmail?: string | null;
   items: { name: string; quantity: number; unitPrice: number; taxRate: number; lineTotal: number }[];
 }
 
@@ -33,6 +37,7 @@ export function generateInvoicePdf(invoice: InvoiceForPdf): Promise<Buffer> {
     doc.on("data", (chunk: Buffer) => chunks.push(chunk));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
+    const money = (value: number) => `Rs. ${value.toFixed(2)}`;
 
   // Header
   doc.fontSize(20).fillColor(INK).text(invoice.business.name, { continued: false });
@@ -55,11 +60,14 @@ export function generateInvoicePdf(invoice: InvoiceForPdf): Promise<Buffer> {
   doc.fontSize(9).fillColor(INK_SOFT).text(`Date: ${invoice.createdAt.toLocaleDateString("en-IN")}    Status: ${invoice.status}`);
   if (invoice.dueDate) doc.fontSize(9).fillColor(INK_SOFT).text(`Due date: ${invoice.dueDate.toLocaleDateString("en-IN")}`);
 
-  if (invoice.customer) {
+  const customerName = invoice.customer?.name || invoice.customerName;
+  const customerPhone = invoice.customer?.phone || invoice.customerPhone;
+  if (customerName) {
     doc.moveDown(0.5);
-    doc.fontSize(10).fillColor(INK).text(`Bill to: ${invoice.customer.name}`);
-    if (invoice.customer.phone) doc.fontSize(9).fillColor(INK_SOFT).text(invoice.customer.phone);
-    if (invoice.customer.gstin) doc.fontSize(9).fillColor(INK_SOFT).text(`GSTIN: ${invoice.customer.gstin}`);
+    doc.fontSize(10).fillColor(INK).text(`Bill to: ${customerName}`);
+    if (customerPhone) doc.fontSize(9).fillColor(INK_SOFT).text(customerPhone);
+    if (invoice.customerEmail) doc.fontSize(9).fillColor(INK_SOFT).text(invoice.customerEmail);
+    if (invoice.customer?.gstin) doc.fontSize(9).fillColor(INK_SOFT).text(`GSTIN: ${invoice.customer.gstin}`);
   }
 
   doc.moveDown(1);
@@ -81,9 +89,9 @@ export function generateInvoicePdf(invoice: InvoiceForPdf): Promise<Buffer> {
     const y = doc.y;
     doc.text(item.name, colX.name, y, { width: 240 });
     doc.text(String(item.quantity), colX.qty, y);
-    doc.text(`₹${item.unitPrice.toFixed(2)}`, colX.price, y);
+    doc.text(money(item.unitPrice), colX.price, y);
     doc.text(`${item.taxRate}%`, colX.tax, y);
-    doc.text(`₹${item.lineTotal.toFixed(2)}`, colX.total, y);
+    doc.text(money(item.lineTotal), colX.total, y);
     doc.moveDown(0.6);
   }
 
@@ -98,13 +106,21 @@ export function generateInvoicePdf(invoice: InvoiceForPdf): Promise<Buffer> {
     doc.text(value, { align: "right" });
     doc.moveDown(0.3);
   };
-  totalRow("Subtotal", `₹${invoice.subTotal.toFixed(2)}`);
-  if (invoice.discount) totalRow("Discount", `-₹${invoice.discount.toFixed(2)}`);
-  totalRow("GST", `₹${invoice.taxTotal.toFixed(2)}`);
-  totalRow("Grand total", `₹${invoice.grandTotal.toFixed(2)}`, true);
-  totalRow("Paid", `₹${invoice.amountPaid.toFixed(2)}`);
+  totalRow("Subtotal", money(invoice.subTotal));
+  if (invoice.discount) totalRow("Discount", `-${money(invoice.discount)}`);
+  totalRow("GST", money(invoice.taxTotal));
+  totalRow("Grand total", money(invoice.grandTotal), true);
+  totalRow("Paid", money(invoice.amountPaid));
   const balance = invoice.grandTotal - invoice.amountPaid;
-  if (balance > 0) totalRow("Balance due", `₹${balance.toFixed(2)}`, true);
+  if (balance > 0) {
+    totalRow("Debit balance due", money(balance), true);
+    if (invoice.followUpDate) {
+      doc.fontSize(9).fillColor(INK_SOFT).text(`Follow-up date: ${invoice.followUpDate.toLocaleDateString("en-IN")}`, 380, doc.y, { width: 165, align: "right" });
+      doc.moveDown(0.3);
+    }
+  } else {
+    totalRow("Credit balance", money(0));
+  }
 
   if (invoice.notes || invoice.terms) {
     doc.moveDown(1);

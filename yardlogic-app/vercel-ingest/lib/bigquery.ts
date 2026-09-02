@@ -45,3 +45,33 @@ export const ALLOWED_TABLES = [
   "purchase_bills", "purchase_bill_items",
   "delivery_challan_items", "expenses", "payments", "salesman_logs",
 ];
+
+const CAMEL_TO_SNAKE: Record<string, string> = {
+  businessId: "business_id", customerId: "customer_id", supplierId: "supplier_id",
+  invoiceId: "invoice_id", billId: "bill_id", itemId: "item_id", userId: "user_id",
+  createdAt: "created_at", updatedAt: "updated_at", dueDate: "due_date", followUpDate: "follow_up_date",
+  customerName: "customer_name", customerPhone: "customer_phone", customerEmail: "customer_email",
+  amountPaid: "amount_paid", subTotal: "sub_total", taxTotal: "tax_total", lineTotal: "line_total",
+  taxAmount: "tax_amount", paymentMode: "payment_mode", sourceImageUrl: "source_image_url",
+  aiCategoryConfidence: "ai_category_confidence", aiDocumentType: "ai_document_type",
+  extractedData: "extracted_data", storageUrl: "storage_url", storagePath: "storage_path",
+  documentType: "document_type", uploadedByUserId: "uploaded_by_user_id", matchedPaymentId: "matched_payment_id",
+};
+
+const TIMESTAMP_COLUMNS = new Set([
+  "created_at", "updated_at", "due_date", "follow_up_date", "payment_date", "date",
+  "expiry_date", "mfg_date", "filed_at", "scheduled_for", "sent_at",
+]);
+
+function normalizeTimestamp(value: unknown): unknown {
+  if (value === null || value === undefined || value === "") return value;
+  const parsed = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+}
+
+export function normalizeRows(rows: Record<string, unknown>[]) {
+  return rows.map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => {
+    const normalizedKey = CAMEL_TO_SNAKE[key] || key.trim().toLowerCase();
+    return [normalizedKey, TIMESTAMP_COLUMNS.has(normalizedKey) ? normalizeTimestamp(value) : value];
+  })));
+}

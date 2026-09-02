@@ -12,7 +12,7 @@ function storeSession(data: any) {
 
 export function Login() {
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
@@ -24,9 +24,9 @@ export function Login() {
     e.preventDefault();
     if (loading) return;
     setError("");
-    const normalizedEmail = email.trim().toLowerCase();
-    if (!normalizedEmail || !/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
-      setError("Enter a valid email address.");
+    const normalizedIdentifier = identifier.trim().toLowerCase();
+    if (!normalizedIdentifier || (!/^\S+@\S+\.\S+$/.test(normalizedIdentifier) && !/^\+?[0-9][0-9\s-]{7,19}$/.test(normalizedIdentifier))) {
+      setError("Enter a valid email address or mobile number.");
       return;
     }
     if (password.length < 8) {
@@ -45,8 +45,8 @@ export function Login() {
     try {
       const path = mode === "login" ? "/auth/login" : "/auth/signup";
       const body = mode === "login"
-        ? { identifier: normalizedEmail, password }
-        : { identifier: normalizedEmail, password, name: name.trim(), businessName: businessName.trim() };
+        ? { identifier: normalizedIdentifier, password }
+        : { identifier: normalizedIdentifier, password, name: name.trim(), businessName: businessName.trim() };
       const data = await api<any>(path, { method: "POST", body: JSON.stringify(body) });
       storeSession(data);
       initSync();
@@ -72,10 +72,10 @@ export function Login() {
         <form onSubmit={submit}>
           {mode === "register" && <Field label="Your name" value={name} onChange={setName} />}
           {mode === "register" && <Field label="Business name" value={businessName} onChange={setBusinessName} />}
-          <Field label="Email address" type="email" value={email} onChange={setEmail} />
+          <Field label="Email or mobile number" value={identifier} onChange={setIdentifier} />
           <Field label="Password" type="password" value={password} onChange={setPassword} />
           {error && <p style={{ color: "var(--red)", fontSize: 13 }}>{error}</p>}
-          <button type="submit" style={{ width: "100%" }} disabled={loading || !email || password.length < 8 || (mode === "register" && (!name || !businessName))}>
+          <button type="submit" style={{ width: "100%" }} disabled={loading || !identifier || password.length < 8 || (mode === "register" && (!name || !businessName))}>
             {loading ? "Please wait..." : mode === "login" ? "Log in" : "Create account"}
           </button>
         </form>

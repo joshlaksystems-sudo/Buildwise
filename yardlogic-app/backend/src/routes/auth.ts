@@ -22,11 +22,16 @@ function isEmail(v: string) {
   return v.includes("@");
 }
 
+const identifierSchema = z.string().trim().refine((value) => {
+  if (value.includes("@")) return z.string().email().safeParse(value).success;
+  return /^\+?[0-9][0-9\s-]{7,19}$/.test(value);
+}, "Enter a valid email address or mobile number");
+
 // ---------- Password login (email or phone as identifier) ----------
 
 const signupSchema = z.object({
   name: z.string().trim().min(2).max(80),
-  identifier: z.string().trim().toLowerCase().email(),
+  identifier: identifierSchema,
   password: z.string().min(8).max(128),
   businessName: z.string().trim().min(2).max(120),
 });
@@ -67,7 +72,7 @@ authRouter.post("/welcome-email", requireAuth, async (req: AuthedRequest, res) =
 });
 
 const loginSchema = z.object({
-  identifier: z.string().trim().toLowerCase().email(),
+  identifier: identifierSchema,
   password: z.string().min(1).max(128),
   totpCode: z.string().optional(), // required only if the account has 2FA enabled
 });
@@ -76,7 +81,7 @@ authRouter.post("/login", async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { identifier, password, totpCode } = parsed.data;
-  const user = await prisma.user.findUnique({ where: { email: identifier } });
+  const user = await prisma.user.findFirst({ where: { OR: [{ email: identifier }, { phone: identifier }] } });
   if (!user?.passwordHash) return res.status(401).json({ error: "Invalid credentials" });
 
   const valid = await bcrypt.compare(password, user.passwordHash);
@@ -129,7 +134,7 @@ authRouter.post("/2fa/disable", requireAuth, async (req: AuthedRequest, res) => 
 
 // ---------- OTP login (email or mobile, no password) ----------
 
-const otpRequestSchema = z.object({ identifier: z.string().email() });
+const otpRequestSchema = z.object({ identifier: identifierSchema });
 
 authRouter.post("/otp/request", async (req, res) => {
   const parsed = otpRequestSchema.safeParse(req.body);
@@ -150,7 +155,7 @@ authRouter.post("/otp/request", async (req, res) => {
 });
 
 const otpVerifySchema = z.object({
-  identifier: z.string().email(),
+  identifier: identifierSchema,
   code: z.string().length(6),
   // only needed the first time — creates the account + first business
   name: z.string().optional(),

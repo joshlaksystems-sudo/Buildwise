@@ -9,7 +9,7 @@ syncRouter.use(requireAuth);
 // Tables the offline client is allowed to sync — must have an
 // `updatedAt` column (Prisma @updatedAt) for last-write-wins to
 // work, and a `businessId` column for tenant scoping.
-const SYNCABLE_MODELS = ["item", "customer", "supplier", "invoice", "expense", "payment", "deliveryChallan", "estimate"] as const;
+const SYNCABLE_MODELS = ["item", "customer", "supplier", "expense"] as const;
 type SyncableModel = (typeof SYNCABLE_MODELS)[number];
 
 function isSyncable(m: string): m is SyncableModel {
@@ -33,6 +33,13 @@ const pushSchema = z.object({
   rows: z.array(z.record(z.any())).min(1),
 });
 
+const scalarFields: Record<SyncableModel, Set<string>> = {
+  item: new Set(["id", "name", "sku", "barcode", "category", "unit", "salePrice", "purchasePrice", "taxRate", "hsnCode", "mrp", "isMrpInclusive", "currentStock", "lowStockAlert", "reorderPoint", "reorderQuantity", "grade", "scheduleClass", "saltComposition", "requiresBatchTracking", "materialTemplateId", "attributes", "updatedAt"]),
+  customer: new Set(["id", "name", "phone", "email", "gstin", "address", "openingBalance", "creditLimit", "loyaltyPoints", "lastPurchaseAt", "updatedAt"]),
+  supplier: new Set(["id", "name", "phone", "email", "gstin", "address", "openingBalance", "bankAccountNumber", "bankName", "ifscCode", "paymentTerms", "creditLimit", "isActive", "updatedAt"]),
+  expense: new Set(["id", "supplierId", "category", "amount", "taxAmount", "paymentDate", "isRecurring", "recurrenceFrequency", "referenceNumber", "note", "sourceImageUrl", "aiCategoryConfidence", "updatedAt"]),
+};
+
 syncRouter.post("/push", async (req: AuthedRequest, res) => {
   const parsed = pushSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -47,6 +54,9 @@ syncRouter.post("/push", async (req: AuthedRequest, res) => {
 
   for (const row of rows) {
     if (!row.id) continue;
+    const invalidField = Object.keys(row).find((field) => !scalarFields[model].has(field));
+    if (invalidField) return res.status(400).json({ error: `Field ${invalidField} cannot be synced for ${model}` });
+    if (row.updatedAt && Number.isNaN(new Date(row.updatedAt).getTime())) return res.status(400).json({ error: "Invalid updatedAt" });
 
     const existing = await delegate.findFirst({ where: { id: row.id, businessId: req.businessId } });
     const incomingUpdatedAt = row.updatedAt ? new Date(row.updatedAt) : new Date();
@@ -58,10 +68,11 @@ syncRouter.post("/push", async (req: AuthedRequest, res) => {
       continue;
     }
 
+    const safeRow = Object.fromEntries(Object.entries(row).filter(([key]) => key !== "businessId"));
     await delegate.upsert({
       where: { id: row.id },
-      update: { ...row, businessId: req.businessId },
-      create: { ...row, businessId: req.businessId },
+      update: { ...safeRow, businessId: req.businessId },
+      create: { ...safeRow, businessId: req.businessId },
     });
     results.push({ id: row.id, outcome: "applied" });
   }

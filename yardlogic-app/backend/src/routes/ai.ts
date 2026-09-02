@@ -8,6 +8,8 @@ import {
   isSubscriptionActive,
   generateReportWithVertexAI,
   getInvoiceInsightsWithVertexAI,
+  extractPurchaseBillWithVertexAI,
+  answerBusinessQuestionWithVertexAI,
 } from "../services/googleCloud";
 import { AICreditExhaustedError, getAIWallet, withAICredit } from "../services/aiWallet";
 
@@ -46,6 +48,15 @@ const ocrSchema = z.object({
   imageUrl: z.string().optional(),
 });
 
+const aiExpenseResultSchema = z.object({
+  category: z.string().trim().min(1).max(80),
+  amount: z.number().positive(),
+  taxAmount: z.number().min(0),
+  vendor: z.string().nullable().optional(),
+  confidence: z.number().min(0).max(1),
+  reasoning: z.string().max(1000),
+});
+
 aiRouter.post("/categorize-expense", async (req: AuthedRequest, res) => {
   try {
     const parsed = ocrSchema.safeParse(req.body);
@@ -63,24 +74,46 @@ aiRouter.post("/categorize-expense", async (req: AuthedRequest, res) => {
       }
       return categorizeReceiptText(parsed.data.rawText);
     });
+    const validatedResult = aiExpenseResultSchema.safeParse(result);
+    if (!validatedResult.success) {
+      return res.status(422).json({ error: "AI could not reliably read this receipt. Please enter the expense manually.", details: validatedResult.error.flatten() });
+    }
 
     const expense = await prisma.expense.create({
       data: {
         businessId: req.businessId!,
-        category: result.category,
-        amount: result.amount,
-        taxAmount: result.taxAmount,
-        note: result.vendor ? `From ${result.vendor}` : undefined,
+        category: validatedResult.data.category,
+        amount: validatedResult.data.amount,
+        taxAmount: validatedResult.data.taxAmount,
+        note: validatedResult.data.vendor ? `From ${validatedResult.data.vendor}` : undefined,
         sourceImageUrl: parsed.data.imageUrl,
-        aiCategoryConfidence: result.confidence,
+        aiCategoryConfidence: validatedResult.data.confidence,
       },
     });
 
-    res.status(201).json({ expense, aiReasoning: result.reasoning });
+    res.status(201).json({ expense, aiReasoning: validatedResult.data.reasoning });
   } catch (error) {
     if (error instanceof AICreditExhaustedError) return res.status(402).json({ error: error.message, balance: error.balance, required: error.required });
     console.error("Error categorizing expense:", error);
     res.status(500).json({ error: "Failed to categorize expense" });
+  }
+});
+
+const purchaseBillExtractionSchema = z.object({ rawText: z.string().min(1).max(12000) });
+
+// OCR/Vertex preview only. The reviewed result must be submitted to
+// POST /purchase-bills before it changes stock or supplier balances.
+aiRouter.post("/extract-purchase-bill", async (req: AuthedRequest, res) => {
+  try {
+    const parsed = purchaseBillExtractionSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    if (process.env.VERTEX_AI_ENABLE !== "true") return res.status(402).json({ error: "This feature requires Vertex AI to be enabled" });
+    const extraction = await withAICredit(req.businessId!, req.userId!, "extractPurchaseBill", () => extractPurchaseBillWithVertexAI(parsed.data.rawText));
+    res.json({ extraction, requiresReview: true });
+  } catch (error) {
+    if (error instanceof AICreditExhaustedError) return res.status(402).json({ error: error.message, balance: error.balance, required: error.required });
+    console.error("Error extracting purchase bill:", error);
+    res.status(500).json({ error: "Failed to extract purchase bill" });
   }
 });
 
@@ -117,7 +150,11 @@ aiRouter.post("/ask", async (req: AuthedRequest, res) => {
       }),
     ]);
 
-    const answer = await withAICredit(req.businessId!, req.userId!, "ask", () => answerBusinessQuestion(parsed.data.question, { invoices, expenses, payments, gstFilings }));
+    const answer = await withAICredit(req.businessId!, req.userId!, "ask", () =>
+      process.env.VERTEX_AI_ENABLE === "true"
+        ? answerBusinessQuestionWithVertexAI(parsed.data.question, { invoices, expenses, payments, gstFilings })
+        : answerBusinessQuestion(parsed.data.question, { invoices, expenses, payments, gstFilings })
+    );
 
     res.json({ answer });
   } catch (error) {

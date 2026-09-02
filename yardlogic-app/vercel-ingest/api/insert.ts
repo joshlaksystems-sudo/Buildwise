@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { bigquery, DATASET, TABLE_ENUMS, ALLOWED_TABLES } from "../lib/bigquery";
+import { bigquery, DATASET, TABLE_ENUMS, ALLOWED_TABLES, normalizeRows } from "../lib/bigquery";
 
 // Apps Script posts here as:
 // { "table": "invoices", "rows": [{...}, {...}] }
@@ -28,9 +28,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Validate enum columns before they ever reach BigQuery — a bad
   // Apps Script edit shouldn't be able to write garbage into
   // status/role/mode columns.
+  const normalizedRows = normalizeRows(rows);
+  if (normalizedRows.some((row) => typeof row.id !== "string" || !row.id.trim())) {
+    return res.status(400).json({ error: "Every row must include a stable non-empty id for deduplication" });
+  }
   const enumRules = TABLE_ENUMS[table];
   if (enumRules) {
-    for (const row of rows) {
+    for (const row of normalizedRows) {
       for (const [col, allowed] of Object.entries(enumRules)) {
         if (row[col] !== undefined && !allowed.includes(String(row[col]))) {
           return res.status(400).json({ error: `${table}.${col} must be one of: ${allowed.join(", ")}` });
@@ -40,8 +44,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    await bigquery.dataset(DATASET).table(table).insert(rows, { skipInvalidRows: false, ignoreUnknownValues: false });
-    return res.status(200).json({ inserted: rows.length, table });
+    const deduplicatedRows = normalizedRows.map((row) => ({
+      insertId: `${table}:${String(row.id)}`,
+      json: row,
+    }));
+    await bigquery.dataset(DATASET).table(table).insert(deduplicatedRows, { skipInvalidRows: false, ignoreUnknownValues: false });
+    return res.status(200).json({ inserted: normalizedRows.length, table });
   } catch (err: any) {
     // BigQuery's insertErrors payload is the most useful debugging
     // info Apps Script will get back — surface it directly.
