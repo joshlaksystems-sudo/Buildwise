@@ -42,6 +42,7 @@ export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) 
   const [selectedBill, setSelectedBill] = useState<PurchaseBill | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [formData, setFormData] = useState<Partial<PurchaseBill>>({});
   const [items, setItems] = useState<any[]>([]);
@@ -56,10 +57,12 @@ export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) 
 
   const fetchBills = async () => {
     try {
-      const response = await api("/purchase-bills");
-      setBills(response);
+      const response = await api<{ bills?: PurchaseBill[] } | PurchaseBill[]>("/purchase-bills");
+      setBills(Array.isArray(response) ? response : response.bills || []);
+      setError("");
     } catch (error) {
       console.error("Error fetching bills:", error);
+      setError(error instanceof Error ? error.message : "Unable to load purchase bills");
     }
   };
 
@@ -69,6 +72,7 @@ export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) 
       setSuppliers(response);
     } catch (error) {
       console.error("Error fetching suppliers:", error);
+      setError(error instanceof Error ? error.message : "Unable to load suppliers");
     } finally {
       setLoading(false);
     }
@@ -254,6 +258,13 @@ export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) 
           + Create Bill
         </button>
       </div>
+
+      {error && (
+        <div className="error-state">
+          <p>{error}</p>
+          <button className="btn-secondary" onClick={() => { void fetchBills(); void fetchSuppliers(); }}>Retry</button>
+        </div>
+      )}
 
       <div className="status-filter">
         {["all", "DRAFT", "RECEIVED", "PARTIAL", "PAID", "CANCELLED"].map((status) => (

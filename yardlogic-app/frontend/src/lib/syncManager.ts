@@ -90,19 +90,37 @@ export async function pullChanges() {
   await setLastSyncedAt(latest);
 }
 
+let syncStarted = false;
+let syncInFlight: Promise<void> | null = null;
+
 /** Call once on app load: flushes any queued writes, pulls fresh data, then keeps doing both as connectivity changes. */
 export function initSync() {
+  if (syncStarted) return;
+  syncStarted = true;
+
   const runFullSync = async () => {
-    await flushOutbox();
-    await pullChanges();
+    if (syncInFlight) return syncInFlight;
+
+    syncInFlight = (async () => {
+      try {
+        await flushOutbox();
+        await pullChanges();
+      } catch (error) {
+        console.warn("Background sync deferred", error);
+      } finally {
+        syncInFlight = null;
+      }
+    })();
+
+    return syncInFlight;
   };
 
-  if (navigator.onLine) runFullSync();
+  if (navigator.onLine) void runFullSync();
 
-  window.addEventListener("online", runFullSync);
+  window.addEventListener("online", () => void runFullSync());
   // Periodic pull while online, in case another device changed data —
   // push is event-driven (via saveLocalFirst) so it doesn't need polling.
-  setInterval(() => {
-    if (navigator.onLine) runFullSync();
+  window.setInterval(() => {
+    if (navigator.onLine) void runFullSync();
   }, 60_000);
 }

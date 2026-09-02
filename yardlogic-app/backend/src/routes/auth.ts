@@ -25,10 +25,10 @@ function isEmail(v: string) {
 // ---------- Password login (email or phone as identifier) ----------
 
 const signupSchema = z.object({
-  name: z.string().min(1),
-  identifier: z.string().email(),
-  password: z.string().min(8),
-  businessName: z.string().min(1),
+  name: z.string().trim().min(2).max(80),
+  identifier: z.string().trim().toLowerCase().email(),
+  password: z.string().min(8).max(128),
+  businessName: z.string().trim().min(2).max(120),
 });
 
 authRouter.post("/signup", async (req, res) => {
@@ -67,8 +67,8 @@ authRouter.post("/welcome-email", requireAuth, async (req: AuthedRequest, res) =
 });
 
 const loginSchema = z.object({
-  identifier: z.string().email(),
-  password: z.string(),
+  identifier: z.string().trim().toLowerCase().email(),
+  password: z.string().min(1).max(128),
   totpCode: z.string().optional(), // required only if the account has 2FA enabled
 });
 

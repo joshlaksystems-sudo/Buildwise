@@ -14,8 +14,8 @@ const lineSchema = z.object({
   name: z.string(),
   quantity: z.number().positive(),
   unitPrice: z.number().nonnegative(),
-  discount: z.number().default(0),
-  taxRate: z.number().default(0),
+  discount: z.number().min(0).default(0),
+  taxRate: z.number().min(0).max(100).default(0),
 });
 
 const invoiceSchema = z.object({
@@ -23,13 +23,28 @@ const invoiceSchema = z.object({
   type: z.enum(["GST", "NON_GST", "POS"]).default("GST"),
   lines: z.array(lineSchema).min(1),
   paymentMode: z.enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"]).optional(),
-  amountPaid: z.number().default(0),
+  amountPaid: z.number().min(0).default(0),
 });
 
 // Automated, gap-free bill numbering per business: INV-0001, INV-0002...
 async function nextInvoiceNumber(businessId: string) {
-  const count = await prisma.invoice.count({ where: { businessId } });
-  return `INV-${String(count + 1).padStart(4, "0")}`;
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { invoicePrefix: true, invoiceStartNumber: true },
+  });
+  const prefix = business?.invoicePrefix || "INV";
+  const startNumber = business?.invoiceStartNumber || 1;
+  const invoices = await prisma.invoice.findMany({
+    where: { businessId },
+    select: { number: true },
+  });
+  const prefixPattern = `${prefix}-`;
+  const highestNumber = invoices.reduce((highest, invoice) => {
+    if (!invoice.number.startsWith(prefixPattern)) return highest;
+    const value = Number(invoice.number.slice(prefixPattern.length));
+    return Number.isInteger(value) ? Math.max(highest, value) : highest;
+  }, startNumber - 1);
+  return `${prefix}-${String(highestNumber + 1).padStart(4, "0")}`;
 }
 
 function computeLine(line: z.infer<typeof lineSchema>) {
@@ -45,6 +60,10 @@ invoicesRouter.post("/", async (req: AuthedRequest, res) => {
 
   let subTotal = 0;
   let taxTotal = 0;
+  const invalidDiscount = lines.find((line) => line.discount > line.quantity * line.unitPrice);
+  if (invalidDiscount) {
+    return res.status(422).json({ error: "Line discount cannot be greater than the line amount" });
+  }
   const computed = lines.map((l) => {
     const { lineTotal, tax, base } = computeLine(l);
     subTotal += base;
@@ -52,6 +71,23 @@ invoicesRouter.post("/", async (req: AuthedRequest, res) => {
     return { ...l, lineTotal };
   });
   const grandTotal = subTotal + taxTotal;
+  if (amountPaid > grandTotal) {
+    return res.status(422).json({ error: "Amount paid cannot be greater than the invoice total" });
+  }
+
+  const itemIds = lines.flatMap((line) => line.itemId ? [line.itemId] : []);
+  const ownedItems = await prisma.item.findMany({
+    where: { id: { in: itemIds }, businessId: req.businessId },
+    select: { id: true },
+  });
+  if (ownedItems.length !== new Set(itemIds).size) {
+    return res.status(422).json({ error: "One or more items do not belong to this business" });
+  }
+
+  if (customerId) {
+    const customer = await prisma.customer.findFirst({ where: { id: customerId, businessId: req.businessId }, select: { id: true } });
+    if (!customer) return res.status(404).json({ error: "Customer not found" });
+  }
 
   // Dealer/distributor credit limit enforcement (Step 6). Only
   // blocks when the customer actually has a limit set — most

@@ -3,26 +3,54 @@ import { api } from "../lib/api";
 import { cacheInvoicePdf, getCachedInvoicePdf } from "../lib/offlineDb";
 
 interface Line { name: string; quantity: number; unitPrice: number; taxRate: number; discount: number }
+interface BusinessMetadata { name: string; gstin?: string | null; address?: string | null; ownerPhone?: string | null; stateName?: string | null }
+interface Customer { id: string; name: string; phone?: string | null; gstin?: string | null }
 
 export function Invoices() {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [lines, setLines] = useState<Line[]>([{ name: "", quantity: 1, unitPrice: 0, taxRate: 18, discount: 0 }]);
   const [creating, setCreating] = useState(false);
+  const [business, setBusiness] = useState<BusinessMetadata | null>(null);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customerId, setCustomerId] = useState("");
+  const [invoiceType, setInvoiceType] = useState("GST");
+  const [error, setError] = useState("");
 
   function refresh() {
     api("/invoices").then(setInvoices).catch(() => {});
   }
   useEffect(refresh, []);
+  useEffect(() => {
+    const activeBusinessId = localStorage.getItem("businessId");
+    if (!activeBusinessId) return;
+    Promise.all([
+      api<BusinessMetadata>(`/business/${activeBusinessId}`),
+      api<Customer[]>("/contacts/customers"),
+    ]).then(([businessData, customerData]) => {
+      setBusiness(businessData);
+      setCustomers(customerData);
+    }).catch((requestError) => {
+      setError(requestError instanceof Error ? requestError.message : "Unable to load invoice metadata");
+    });
+  }, []);
 
   const subTotal = lines.reduce((s, l) => s + l.quantity * l.unitPrice - l.discount, 0);
   const tax = lines.reduce((s, l) => s + (l.quantity * l.unitPrice - l.discount) * (l.taxRate / 100), 0);
 
   async function submit() {
+    if (lines.some((line) => !line.name.trim() || line.quantity <= 0 || line.unitPrice < 0 || line.discount < 0 || line.discount > line.quantity * line.unitPrice)) {
+      setError("Check item names, quantities, prices, and discounts before creating the invoice.");
+      return;
+    }
     setCreating(true);
+    setError("");
     try {
-      await api("/invoices", { method: "POST", body: JSON.stringify({ lines, amountPaid: subTotal + tax, paymentMode: "CASH" }) });
+      await api("/invoices", { method: "POST", body: JSON.stringify({ customerId: customerId || undefined, type: invoiceType, lines, amountPaid: subTotal + tax, paymentMode: "CASH" }) });
       setLines([{ name: "", quantity: 1, unitPrice: 0, taxRate: 18, discount: 0 }]);
+      setCustomerId("");
       refresh();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to create invoice");
     } finally {
       setCreating(false);
     }
@@ -68,8 +96,29 @@ export function Invoices() {
     <div>
       <h1 style={{ fontSize: 28, marginBottom: 24 }}>Invoices</h1>
 
+      {error && <p style={{ color: "var(--red)", marginBottom: 16 }}>{error}</p>}
+
       <section style={{ background: "var(--paper-raised)", border: "1px solid var(--rule)", padding: 20, marginBottom: 32 }}>
         <h2 style={{ fontSize: 16, marginBottom: 16 }}>New bill</h2>
+        {business && (
+          <div style={{ borderBottom: "1px solid var(--rule)", paddingBottom: 16, marginBottom: 16 }}>
+            <strong>{business.name}</strong>
+            {business.gstin && <div>GSTIN: {business.gstin}</div>}
+            {business.address && <div>{business.address}</div>}
+            {(business.stateName || business.ownerPhone) && <div>{[business.stateName, business.ownerPhone].filter(Boolean).join(" | ")}</div>}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
+            <option value="">Walk-in customer</option>
+            {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+          </select>
+          <select value={invoiceType} onChange={(e) => setInvoiceType(e.target.value)}>
+            <option value="GST">GST invoice</option>
+            <option value="NON_GST">Non-GST invoice</option>
+            <option value="POS">POS invoice</option>
+          </select>
+        </div>
         {lines.map((l, i) => (
           <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
             <input placeholder="Item name" value={l.name} onChange={(e) => updateLine(i, { name: e.target.value })} />

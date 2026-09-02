@@ -18,7 +18,7 @@ interface InvoiceForPdf {
   discount: number;
   grandTotal: number;
   amountPaid: number;
-  business: { name: string; gstin?: string | null; address?: string | null };
+  business: { name: string; gstin?: string | null; address?: string | null; ownerName?: string | null; ownerPhone?: string | null; stateName?: string | null };
   customer?: { name: string; phone?: string | null; gstin?: string | null } | null;
   items: { name: string; quantity: number; unitPrice: number; taxRate: number; lineTotal: number }[];
 }
@@ -39,6 +39,8 @@ export function generateInvoicePdf(invoice: InvoiceForPdf): Promise<Buffer> {
   if (invoice.business.address) {
     doc.fontSize(9).fillColor(INK_SOFT).text(invoice.business.address);
   }
+  const businessContact = [invoice.business.ownerName, invoice.business.ownerPhone, invoice.business.stateName].filter(Boolean).join(" | ");
+  if (businessContact) doc.fontSize(9).fillColor(INK_SOFT).text(businessContact);
 
   doc.moveDown(1);
   doc.strokeColor(RULE).moveTo(50, doc.y).lineTo(545, doc.y).stroke();

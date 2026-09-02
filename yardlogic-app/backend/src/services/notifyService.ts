@@ -100,6 +100,7 @@ async function getGmailAccessToken() {
       refresh_token: refreshToken,
       grant_type: "refresh_token",
     }),
+    signal: AbortSignal.timeout(8000),
   });
   if (!response.ok) throw new Error(`Gmail OAuth token request failed: ${response.status} ${await response.text()}`);
   const data = (await response.json()) as { access_token?: string };
@@ -129,6 +130,7 @@ async function sendGmailEmail(email: string, subject: string, message: string) {
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({ raw: encodeBase64Url(body) }),
+      signal: AbortSignal.timeout(8000),
     });
     if (!response.ok) throw new Error(`Gmail send failed: ${response.status} ${await response.text()}`);
     return true;

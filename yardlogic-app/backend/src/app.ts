@@ -1,3 +1,4 @@
+import "express-async-errors";
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
@@ -26,7 +27,20 @@ import { notificationsRouter } from "./routes/notifications";
 import { prisma } from "./lib/prisma";
 
 const app = express();
-app.use(cors());
+const allowedOrigins = (process.env.CORS_ORIGINS || "*")
+	.split(",")
+	.map((origin) => origin.trim())
+	.filter(Boolean);
+
+app.use(cors({
+	origin: (origin, callback) => {
+		if (!origin || allowedOrigins.includes("*") || allowedOrigins.includes(origin)) {
+			callback(null, true);
+			return;
+		}
+		callback(new Error("Origin is not allowed by CORS"));
+	},
+}));
 app.use(express.json({ limit: "5mb" }));
 initializeGoogleCloud();
 
@@ -61,5 +75,11 @@ app.use("/forecast", forecastRouter);
 app.use("/bank", bankRouter);
 app.use("/bank", bankStatementsRouter);
 app.use("/notifications", notificationsRouter);
+
+app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+	console.error("Unhandled API error:", error);
+	if (res.headersSent) return;
+	res.status(500).json({ error: "Something went wrong. Please try again." });
+});
 
 export default app;

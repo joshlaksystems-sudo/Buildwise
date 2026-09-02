@@ -22,13 +22,31 @@ export function Login() {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (loading) return;
     setError("");
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || !/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+      setError("Enter a valid email address.");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    if (mode === "register" && name.trim().length < 2) {
+      setError("Enter your full name.");
+      return;
+    }
+    if (mode === "register" && businessName.trim().length < 2) {
+      setError("Enter your business name.");
+      return;
+    }
     setLoading(true);
     try {
       const path = mode === "login" ? "/auth/login" : "/auth/signup";
       const body = mode === "login"
-        ? { identifier: email, password }
-        : { identifier: email, password, name, businessName };
+        ? { identifier: normalizedEmail, password }
+        : { identifier: normalizedEmail, password, name: name.trim(), businessName: businessName.trim() };
       const data = await api<any>(path, { method: "POST", body: JSON.stringify(body) });
       storeSession(data);
       initSync();

@@ -127,6 +127,9 @@ gstRouter.get("/reconcile-2a", async (req: AuthedRequest, res) => {
 
 // E-invoice IRN and e-way bill generation — both need the GSP too.
 gstRouter.post("/invoices/:id/e-invoice", async (req: AuthedRequest, res) => {
+  const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, businessId: req.businessId }, select: { id: true } });
+  if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+
   try {
     const result = await generateEInvoiceIrn(req.params.id);
     await prisma.invoice.update({ where: { id: req.params.id }, data: { isEInvoice: true, eInvoiceIrn: result.irn } });
@@ -142,6 +145,8 @@ const ewayBillSchema = z.object({ vehicleNumber: z.string(), transporterId: z.st
 gstRouter.post("/invoices/:id/eway-bill", async (req: AuthedRequest, res) => {
   const parsed = ewayBillSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, businessId: req.businessId }, select: { id: true } });
+  if (!invoice) return res.status(404).json({ error: "Invoice not found" });
 
   try {
     const result = await generateEwayBill(req.params.id, parsed.data.vehicleNumber);
@@ -182,6 +187,11 @@ gstRouter.post("/eway-bills/bulk", async (req: AuthedRequest, res) => {
 
   const results = [];
   for (const d of parsed.data.dispatches) {
+    const invoice = await prisma.invoice.findFirst({ where: { id: d.invoiceId, businessId: req.businessId }, select: { id: true } });
+    if (!invoice) {
+      results.push({ invoiceId: d.invoiceId, ok: false, error: "Invoice not found" });
+      continue;
+    }
     try {
       const result = await generateEwayBill(d.invoiceId, d.vehicleNumber);
       const ewb = await prisma.ewayBill.upsert({

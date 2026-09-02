@@ -66,6 +66,15 @@ purchaseBillsRouter.post("/", async (req: AuthedRequest, res) => {
       return res.status(404).json({ error: "Supplier not found" });
     }
 
+    const itemIds = items.flatMap((item) => item.itemId ? [item.itemId] : []);
+    const ownedItems = await prisma.item.findMany({
+      where: { id: { in: itemIds }, businessId: req.businessId },
+      select: { id: true },
+    });
+    if (ownedItems.length !== new Set(itemIds).size) {
+      return res.status(422).json({ error: "One or more items do not belong to this business" });
+    }
+
     // Get next bill number
     const number = await getNextBillNumber(req.businessId!);
 
