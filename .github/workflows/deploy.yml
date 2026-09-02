@@ -43,11 +43,6 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_BACKEND_PROJECT_ID: ${{ secrets.VERCEL_BACKEND_PROJECT_ID }}
           VERCEL_FRONTEND_PROJECT_ID: ${{ secrets.VERCEL_FRONTEND_PROJECT_ID }}
-          VERCEL_INGEST_PROJECT_ID: ${{ secrets.VERCEL_INGEST_PROJECT_ID }}
-          BIGQUERY_PROJECT_ID: ${{ secrets.BIGQUERY_PROJECT_ID }}
-          GOOGLE_CLIENT_EMAIL: ${{ secrets.GOOGLE_CLIENT_EMAIL }}
-          GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
-          INGEST_SHARED_SECRET: ${{ secrets.INGEST_SHARED_SECRET }}
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
           CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
           VERTEX_AI_ENABLE: ${{ secrets.VERTEX_AI_ENABLE }}
@@ -59,7 +54,7 @@ jobs:
           GMAIL_FROM_EMAIL: ${{ secrets.GMAIL_FROM_EMAIL }}
         run: |
           set -euo pipefail
-          for name in DATABASE_URL JWT_SECRET GCP_SERVICE_ACCOUNT_KEY GOOGLE_CLOUD_PROJECT_ID GCS_BUCKET BIGQUERY_DATASET BIGQUERY_REGION VERCEL_TOKEN VERCEL_ORG_ID VERCEL_BACKEND_PROJECT_ID VERCEL_FRONTEND_PROJECT_ID VERCEL_INGEST_PROJECT_ID BIGQUERY_PROJECT_ID GOOGLE_CLIENT_EMAIL GOOGLE_PRIVATE_KEY INGEST_SHARED_SECRET VITE_API_URL CORS_ORIGINS VERTEX_AI_ENABLE VERTEX_AI_LOCATION VERTEX_AI_MODEL_ID GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET GMAIL_REFRESH_TOKEN GMAIL_FROM_EMAIL; do
+          for name in DATABASE_URL JWT_SECRET GCP_SERVICE_ACCOUNT_KEY GOOGLE_CLOUD_PROJECT_ID GCS_BUCKET BIGQUERY_DATASET BIGQUERY_REGION VERCEL_TOKEN VERCEL_ORG_ID VERCEL_BACKEND_PROJECT_ID VERCEL_FRONTEND_PROJECT_ID VITE_API_URL CORS_ORIGINS VERTEX_AI_ENABLE VERTEX_AI_LOCATION VERTEX_AI_MODEL_ID GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET GMAIL_REFRESH_TOKEN GMAIL_FROM_EMAIL; do
             if [ -z "${!name:-}" ]; then
               echo "Missing required GitHub secret: $name"
               exit 1
@@ -244,38 +239,3 @@ jobs:
             --build-env "VITE_GCS_BUCKET=${{ secrets.VITE_GCS_BUCKET }}" \
             --build-env "VITE_GCP_PROJECT_ID=${{ secrets.VITE_GCP_PROJECT_ID }}"
 
-  ingest:
-    name: BigQuery ingest — deploy to Vercel
-    runs-on: ubuntu-latest
-    needs: backend
-    defaults:
-      run:
-        working-directory: yardlogic-app/vercel-ingest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: yardlogic-app/vercel-ingest/package-lock.json
-      - name: Install dependencies
-        run: npm ci
-      - name: Type-check ingest API
-        run: npx tsc --noEmit --target ES2022 --module commonjs --moduleResolution node --esModuleInterop --skipLibCheck api/insert.ts lib/bigquery.ts
-      - name: Deploy ingest API to Vercel
-        env:
-          BIGQUERY_PROJECT_ID: ${{ secrets.BIGQUERY_PROJECT_ID }}
-          BIGQUERY_DATASET: ${{ secrets.BIGQUERY_DATASET }}
-          GOOGLE_CLIENT_EMAIL: ${{ secrets.GOOGLE_CLIENT_EMAIL }}
-          GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
-          INGEST_SHARED_SECRET: ${{ secrets.INGEST_SHARED_SECRET }}
-        run: |
-          npx vercel@latest deploy --prod --yes \
-            --token="${{ secrets.VERCEL_TOKEN }}" \
-            --scope="${{ secrets.VERCEL_ORG_ID }}" \
-            --project="${{ secrets.VERCEL_INGEST_PROJECT_ID }}" \
-            --env "BIGQUERY_PROJECT_ID=$BIGQUERY_PROJECT_ID" \
-            --env "BIGQUERY_DATASET=$BIGQUERY_DATASET" \
-            --env "GOOGLE_CLIENT_EMAIL=$GOOGLE_CLIENT_EMAIL" \
-            --env "GOOGLE_PRIVATE_KEY=$GOOGLE_PRIVATE_KEY" \
-            --env "INGEST_SHARED_SECRET=$INGEST_SHARED_SECRET"
