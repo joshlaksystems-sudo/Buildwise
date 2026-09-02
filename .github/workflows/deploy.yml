@@ -53,6 +53,9 @@ jobs:
             https://*.vercel.app|https://*.vercel.app/) ;;
             *) echo "VITE_API_URL must be the deployed HTTPS backend URL, not localhost or a placeholder"; exit 1 ;;
           esac
+          case "$VITE_API_URL" in
+            *your-backend-domain*|*real-backend-url*|*example.com*) echo "VITE_API_URL is still a placeholder: $VITE_API_URL"; exit 1 ;;
+          esac
           echo "Required deployment secrets are present."
 
       - name: Install dependencies
@@ -117,7 +120,67 @@ jobs:
         run: rm -rf .vercel
 
       - name: Deploy backend to Vercel
-        run: npx vercel@latest deploy --prod --yes --token="${{ secrets.VERCEL_TOKEN }}" --scope="${{ secrets.VERCEL_ORG_ID }}" --project="${{ secrets.VERCEL_BACKEND_PROJECT_ID }}"
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          PRODUCT_NAME: ${{ secrets.PRODUCT_NAME }}
+          GOOGLE_CLOUD_PROJECT_ID: ${{ secrets.GOOGLE_CLOUD_PROJECT_ID }}
+          GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
+          BIGQUERY_DATASET: ${{ secrets.BIGQUERY_DATASET }}
+          BIGQUERY_REGION: ${{ secrets.BIGQUERY_REGION }}
+          VERTEX_AI_ENABLE: ${{ secrets.VERTEX_AI_ENABLE }}
+          VERTEX_AI_LOCATION: ${{ secrets.VERTEX_AI_LOCATION }}
+          VERTEX_AI_MODEL_ID: ${{ secrets.VERTEX_AI_MODEL_ID }}
+          VERTEX_AI_SUBSCRIPTION_REQUIRED: ${{ secrets.VERTEX_AI_SUBSCRIPTION_REQUIRED }}
+          AI_DAILY_FREE_TOKENS: ${{ secrets.AI_DAILY_FREE_TOKENS }}
+          AI_DAILY_FREE_CHATS: ${{ secrets.AI_DAILY_FREE_CHATS }}
+          AI_COST_ASK: ${{ secrets.AI_COST_ASK }}
+          AI_COST_CATEGORIZE_EXPENSE: ${{ secrets.AI_COST_CATEGORIZE_EXPENSE }}
+          AI_COST_GENERATE_REPORT: ${{ secrets.AI_COST_GENERATE_REPORT }}
+          AI_COST_INVOICE_INSIGHTS: ${{ secrets.AI_COST_INVOICE_INSIGHTS }}
+          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+          GMAIL_FROM_EMAIL: ${{ secrets.GMAIL_FROM_EMAIL }}
+        run: |
+          npx vercel@latest deploy --prod --yes \
+            --token="${{ secrets.VERCEL_TOKEN }}" \
+            --scope="${{ secrets.VERCEL_ORG_ID }}" \
+            --project="${{ secrets.VERCEL_BACKEND_PROJECT_ID }}" \
+            --env "DATABASE_URL=$DATABASE_URL" \
+            --env "JWT_SECRET=$JWT_SECRET" \
+            --env "NODE_ENV=production" \
+            --env "PRODUCT_NAME=$PRODUCT_NAME" \
+            --env "GOOGLE_CLOUD_PROJECT_ID=$GOOGLE_CLOUD_PROJECT_ID" \
+            --env "GCP_SERVICE_ACCOUNT_KEY=$GCP_SERVICE_ACCOUNT_KEY" \
+            --env "GCS_BUCKET=$GCS_BUCKET" \
+            --env "BIGQUERY_DATASET=$BIGQUERY_DATASET" \
+            --env "BIGQUERY_REGION=$BIGQUERY_REGION" \
+            --env "VERTEX_AI_ENABLE=$VERTEX_AI_ENABLE" \
+            --env "VERTEX_AI_LOCATION=$VERTEX_AI_LOCATION" \
+            --env "VERTEX_AI_MODEL_ID=$VERTEX_AI_MODEL_ID" \
+            --env "VERTEX_AI_SUBSCRIPTION_REQUIRED=$VERTEX_AI_SUBSCRIPTION_REQUIRED" \
+            --env "AI_DAILY_FREE_TOKENS=$AI_DAILY_FREE_TOKENS" \
+            --env "AI_DAILY_FREE_CHATS=$AI_DAILY_FREE_CHATS" \
+            --env "AI_COST_ASK=$AI_COST_ASK" \
+            --env "AI_COST_CATEGORIZE_EXPENSE=$AI_COST_CATEGORIZE_EXPENSE" \
+            --env "AI_COST_GENERATE_REPORT=$AI_COST_GENERATE_REPORT" \
+            --env "AI_COST_INVOICE_INSIGHTS=$AI_COST_INVOICE_INSIGHTS" \
+            --env "GMAIL_CLIENT_ID=$GMAIL_CLIENT_ID" \
+            --env "GMAIL_CLIENT_SECRET=$GMAIL_CLIENT_SECRET" \
+            --env "GMAIL_REFRESH_TOKEN=$GMAIL_REFRESH_TOKEN" \
+            --env "GMAIL_FROM_EMAIL=$GMAIL_FROM_EMAIL"
+
+      - name: Check deployed backend health
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+        run: |
+          set -euo pipefail
+          health_url="${VITE_API_URL%/}/health"
+          response="$(curl --fail --silent --show-error --max-time 30 "$health_url")"
+          test "$response" = '{"ok":true}'
+          echo "Backend health check passed: $health_url"
 
   frontend:
     name: Frontend — build & deploy to Vercel
