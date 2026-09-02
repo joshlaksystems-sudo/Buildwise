@@ -1,11 +1,14 @@
 import { Router } from "express";
 import { z } from "zod";
+import multer from "multer";
 import { prisma } from "../lib/prisma";
 import { AuthedRequest, requireAuth } from "../middleware/auth";
 import { fileGstReturn, generateEInvoiceIrn, generateEwayBill, GspNotConfiguredError } from "../services/gspService";
+import { uploadComplianceDocumentToGCS } from "../services/googleCloud";
 
 export const gstRouter = Router();
 gstRouter.use(requireAuth);
+const complianceUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 function periodBounds(period: string) {
   // "2026-08" -> that calendar month
@@ -15,10 +18,44 @@ function periodBounds(period: string) {
   return { start, end };
 }
 
+const periodSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Period must use YYYY-MM format");
+
+gstRouter.get("/preparation-pack/:period", async (req: AuthedRequest, res) => {
+  const periodResult = periodSchema.safeParse(req.params.period);
+  if (!periodResult.success) return res.status(400).json({ error: periodResult.error.flatten() });
+  const period = periodResult.data;
+  const { start, end } = periodBounds(period);
+  const [business, invoices, expenses, purchaseBills, documents, reconciliation] = await Promise.all([
+    prisma.business.findUnique({ where: { id: req.businessId }, select: { id: true, name: true, gstin: true, address: true, stateCode: true } }),
+    prisma.invoice.findMany({ where: { businessId: req.businessId, createdAt: { gte: start, lt: end }, status: { not: "CANCELLED" } }, include: { customer: true, items: true }, orderBy: { createdAt: "asc" } }),
+    prisma.expense.findMany({ where: { businessId: req.businessId, createdAt: { gte: start, lt: end } }, orderBy: { createdAt: "asc" } }),
+    prisma.purchaseBill.findMany({ where: { businessId: req.businessId, createdAt: { gte: start, lt: end }, status: { not: "CANCELLED" } }, include: { supplier: true, items: true }, orderBy: { createdAt: "asc" } }),
+    prisma.complianceDocument.findMany({ where: { businessId: req.businessId, period }, orderBy: { createdAt: "asc" } }),
+    prisma.itcReconciliation.findMany({ where: { businessId: req.businessId }, orderBy: { createdAt: "desc" }, take: 500 }),
+  ]);
+  if (!business) return res.status(404).json({ error: "Business not found" });
+  const sales = invoices.filter((invoice) => invoice.type === "GST");
+  const taxableValue = sales.reduce((sum, invoice) => sum + invoice.subTotal, 0);
+  const outputGst = sales.reduce((sum, invoice) => sum + invoice.taxTotal, 0);
+  const inputGst = expenses.reduce((sum, expense) => sum + expense.taxAmount, 0);
+  res.json({ generatedAt: new Date().toISOString(), period, business, summary: { salesInvoiceCount: sales.length, taxableValue, outputGst, inputGst, netTaxPayable: outputGst - inputGst }, invoices, expenses, purchaseBills, documents, reconciliation });
+});
+
+gstRouter.post("/documents", complianceUpload.single("file"), async (req: AuthedRequest, res) => {
+  const metadata = z.object({ documentType: z.enum(["GSTR1_SOURCE", "GSTR2B_SOURCE", "PURCHASE_BILL", "EXPENSE_RECEIPT", "BANK_STATEMENT", "OTHER"]), period: periodSchema.optional() }).safeParse(req.body);
+  if (!metadata.success) return res.status(400).json({ error: metadata.error.flatten() });
+  if (!req.file) return res.status(400).json({ error: "A document file is required" });
+  const uploaded = await uploadComplianceDocumentToGCS(req.file.buffer, req.file.originalname, req.file.mimetype, req.businessId!, metadata.data.documentType, metadata.data.period);
+  const document = await prisma.complianceDocument.create({ data: { businessId: req.businessId!, uploadedByUserId: req.userId!, documentType: metadata.data.documentType, period: metadata.data.period, fileName: req.file.originalname, mimeType: req.file.mimetype, storageUrl: uploaded?.url, storagePath: uploaded?.path } });
+  res.status(201).json(document);
+});
+
 // Computes real GSTR-1 figures (outward supplies) from your actual
 // invoices — genuinely useful even before you connect a GSP, since
 // it's the number you'd need for manual filing on the GST portal too.
 gstRouter.get("/gstr1/:period", async (req: AuthedRequest, res) => {
+  const periodResult = periodSchema.safeParse(req.params.period);
+  if (!periodResult.success) return res.status(400).json({ error: periodResult.error.flatten() });
   const { start, end } = periodBounds(req.params.period);
   const invoices = await prisma.invoice.findMany({
     where: { businessId: req.businessId, type: "GST", createdAt: { gte: start, lt: end }, status: { not: "CANCELLED" } },
@@ -29,8 +66,8 @@ gstRouter.get("/gstr1/:period", async (req: AuthedRequest, res) => {
 
   const filing = await prisma.gstFiling.upsert({
     where: { businessId_returnType_period: { businessId: req.businessId!, returnType: "GSTR1", period: req.params.period } },
-    update: { taxableValue, taxCollected, status: "READY" },
-    create: { businessId: req.businessId!, returnType: "GSTR1", period: req.params.period, taxableValue, taxCollected, status: "READY" },
+    update: { taxableValue, taxCollected, status: "READY", preparedByUserId: req.userId },
+    create: { businessId: req.businessId!, returnType: "GSTR1", period: req.params.period, taxableValue, taxCollected, status: "READY", preparedByUserId: req.userId },
   });
 
   res.json({ filing, invoiceCount: invoices.length });
@@ -38,6 +75,8 @@ gstRouter.get("/gstr1/:period", async (req: AuthedRequest, res) => {
 
 // GSTR-3B: outward tax minus input tax credit claimed via expenses.
 gstRouter.get("/gstr3b/:period", async (req: AuthedRequest, res) => {
+  const periodResult = periodSchema.safeParse(req.params.period);
+  if (!periodResult.success) return res.status(400).json({ error: periodResult.error.flatten() });
   const { start, end } = periodBounds(req.params.period);
   const [invoices, expenses] = await Promise.all([
     prisma.invoice.findMany({ where: { businessId: req.businessId, type: "GST", createdAt: { gte: start, lt: end }, status: { not: "CANCELLED" } } }),
@@ -50,8 +89,8 @@ gstRouter.get("/gstr3b/:period", async (req: AuthedRequest, res) => {
 
   const filing = await prisma.gstFiling.upsert({
     where: { businessId_returnType_period: { businessId: req.businessId!, returnType: "GSTR3B", period: req.params.period } },
-    update: { taxableValue, taxCollected, itcClaimed, status: "READY" },
-    create: { businessId: req.businessId!, returnType: "GSTR3B", period: req.params.period, taxableValue, taxCollected, itcClaimed, status: "READY" },
+    update: { taxableValue, taxCollected, itcClaimed, status: "READY", preparedByUserId: req.userId },
+    create: { businessId: req.businessId!, returnType: "GSTR3B", period: req.params.period, taxableValue, taxCollected, itcClaimed, status: "READY", preparedByUserId: req.userId },
   });
 
   res.json({ filing, netTaxPayable: taxCollected - itcClaimed });

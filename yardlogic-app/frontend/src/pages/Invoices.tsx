@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { cacheInvoicePdf, getCachedInvoicePdf } from "../lib/offlineDb";
 
-interface Line { name: string; quantity: number; unitPrice: number; taxRate: number; discount: number }
+interface Line { itemId?: string; name: string; quantity: number; unitPrice: number; taxRate: number; discount: number }
 interface BusinessMetadata { name: string; gstin?: string | null; address?: string | null; ownerPhone?: string | null; stateName?: string | null }
 interface Customer { id: string; name: string; phone?: string | null; gstin?: string | null }
+interface InventoryItem { id: string; name: string; salePrice: number; taxRate: number; currentStock: number; unit: string }
 
 export function Invoices() {
   const [invoices, setInvoices] = useState<any[]>([]);
@@ -12,9 +13,14 @@ export function Invoices() {
   const [creating, setCreating] = useState(false);
   const [business, setBusiness] = useState<BusinessMetadata | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [customerId, setCustomerId] = useState("");
   const [invoiceType, setInvoiceType] = useState("GST");
+  const [dueDate, setDueDate] = useState("");
+  const [notes, setNotes] = useState("");
+  const [terms, setTerms] = useState("");
   const [error, setError] = useState("");
+  const [requestId, setRequestId] = useState<string | null>(null);
 
   function refresh() {
     api("/invoices").then(setInvoices).catch(() => {});
@@ -26,9 +32,11 @@ export function Invoices() {
     Promise.all([
       api<BusinessMetadata>(`/business/${activeBusinessId}`),
       api<Customer[]>("/contacts/customers"),
-    ]).then(([businessData, customerData]) => {
+      api<InventoryItem[]>("/items"),
+    ]).then(([businessData, customerData, inventoryData]) => {
       setBusiness(businessData);
       setCustomers(customerData);
+      setInventory(inventoryData);
     }).catch((requestError) => {
       setError(requestError instanceof Error ? requestError.message : "Unable to load invoice metadata");
     });
@@ -45,9 +53,13 @@ export function Invoices() {
     setCreating(true);
     setError("");
     try {
-      await api("/invoices", { method: "POST", body: JSON.stringify({ customerId: customerId || undefined, type: invoiceType, lines, amountPaid: subTotal + tax, paymentMode: "CASH" }) });
+      const idempotencyKey = requestId || crypto.randomUUID();
+      if (!requestId) setRequestId(idempotencyKey);
+      await api("/invoices", { method: "POST", headers: { "X-Idempotency-Key": idempotencyKey }, body: JSON.stringify({ customerId: customerId || undefined, type: invoiceType, lines, amountPaid: subTotal + tax, paymentMode: "CASH", dueDate: dueDate ? new Date(`${dueDate}T00:00:00.000Z`).toISOString() : undefined, notes: notes || undefined, terms: terms || undefined }) });
       setLines([{ name: "", quantity: 1, unitPrice: 0, taxRate: 18, discount: 0 }]);
       setCustomerId("");
+      setDueDate(""); setNotes(""); setTerms("");
+      setRequestId(null);
       refresh();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to create invoice");
@@ -58,6 +70,11 @@ export function Invoices() {
 
   function updateLine(i: number, patch: Partial<Line>) {
     setLines(lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+  }
+
+  function selectInventoryItem(index: number, itemId: string) {
+    const item = inventory.find((candidate) => candidate.id === itemId);
+    updateLine(index, item ? { itemId, name: item.name, unitPrice: item.salePrice, taxRate: item.taxRate } : { itemId: undefined });
   }
 
   // A plain <a href> can't carry the Authorization/X-Business-Id
@@ -108,24 +125,33 @@ export function Invoices() {
             {(business.stateName || business.ownerPhone) && <div>{[business.stateName, business.ownerPhone].filter(Boolean).join(" | ")}</div>}
           </div>
         )}
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          <label>Customer
           <select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
             <option value="">Walk-in customer</option>
             {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
           </select>
+          </label>
+          <label>Invoice type
           <select value={invoiceType} onChange={(e) => setInvoiceType(e.target.value)}>
             <option value="GST">GST invoice</option>
             <option value="NON_GST">Non-GST invoice</option>
             <option value="POS">POS invoice</option>
           </select>
+          </label>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          <label>Due date<input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></label>
+          <label>Notes<input placeholder="Optional note for customer" value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
+          <label>Terms<input placeholder="Payment terms or conditions" value={terms} onChange={(e) => setTerms(e.target.value)} /></label>
         </div>
         {lines.map((l, i) => (
           <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
-            <input placeholder="Item name" value={l.name} onChange={(e) => updateLine(i, { name: e.target.value })} />
-            <input type="number" placeholder="Qty" value={l.quantity} onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })} />
-            <input type="number" placeholder="Price" value={l.unitPrice} onChange={(e) => updateLine(i, { unitPrice: Number(e.target.value) })} />
-            <input type="number" placeholder="GST %" value={l.taxRate} onChange={(e) => updateLine(i, { taxRate: Number(e.target.value) })} />
-            <input type="number" placeholder="Discount" value={l.discount} onChange={(e) => updateLine(i, { discount: Number(e.target.value) })} />
+            <label>Inventory item<select value={l.itemId || ""} onChange={(e) => selectInventoryItem(i, e.target.value)}><option value="">Select item or type name</option>{inventory.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.currentStock} {item.unit})</option>)}</select><input placeholder="Other item name" value={l.name} onChange={(e) => updateLine(i, { itemId: undefined, name: e.target.value })} /></label>
+            <label>Quantity<input type="number" min="0.01" placeholder="0" value={l.quantity} onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })} /></label>
+            <label>Unit price<input type="number" min="0" placeholder="0.00" value={l.unitPrice} onChange={(e) => updateLine(i, { unitPrice: Number(e.target.value) })} /></label>
+            <label>GST %<input type="number" min="0" max="100" placeholder="18" value={l.taxRate} onChange={(e) => updateLine(i, { taxRate: Number(e.target.value) })} /></label>
+            <label>Discount<input type="number" min="0" placeholder="0.00" value={l.discount} onChange={(e) => updateLine(i, { discount: Number(e.target.value) })} /></label>
           </div>
         ))}
         <button className="secondary" onClick={() => setLines([...lines, { name: "", quantity: 1, unitPrice: 0, taxRate: 18, discount: 0 }])}>

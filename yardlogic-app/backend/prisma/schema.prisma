@@ -73,6 +73,7 @@ model Business {
   aiWallet           AIWallet?
   aiTransactions     AIWalletTransaction[]
   aiDailyUsages      AIDailyUsage[]
+  complianceDocuments ComplianceDocument[]
 }
 
 model User {
@@ -376,6 +377,10 @@ model Invoice {
   grandTotal    Float
   amountPaid    Float         @default(0)
   paymentMode   PaymentMode?
+  dueDate       DateTime?
+  notes         String?
+  terms         String?
+  clientRequestId String? @unique
   isEInvoice    Boolean       @default(false)
   eInvoiceIrn   String?
   isEWayBill    Boolean       @default(false)
@@ -443,6 +448,7 @@ model PurchaseBill {
   paymentMode     PaymentMode?
   dueDate         DateTime?
   referenceNumber String? // PO/challan/supplier reference
+  clientRequestId String? @unique
   updatedAt       DateTime     @updatedAt
   createdAt       DateTime     @default(now())
 
@@ -489,6 +495,10 @@ model Estimate {
   taxTotal           Float          @default(0)
   grandTotal         Float
   convertedInvoiceId String?
+  validUntil         DateTime?
+  notes              String?
+  terms              String?
+  clientRequestId    String? @unique
   updatedAt          DateTime       @updatedAt
   createdAt          DateTime       @default(now())
 
@@ -525,6 +535,10 @@ model DeliveryChallan {
   customerId String?
   number     String
   status     ChallanStatus @default(PENDING)
+  vehicleNumber String?
+  transporterId String?
+  notes      String?
+  clientRequestId String? @unique
   updatedAt  DateTime      @updatedAt
   createdAt  DateTime      @default(now())
 
@@ -730,11 +744,29 @@ model GstFiling {
   gspReference String? // filing acknowledgement number, once actually filed via a GSP
   filedAt      DateTime?
   errorDetail  String?
+  preparedByUserId String?
   createdAt    DateTime  @default(now())
 
   business Business @relation(fields: [businessId], references: [id])
 
   @@unique([businessId, returnType, period])
+}
+
+model ComplianceDocument {
+  id          String   @id @default(uuid())
+  businessId  String
+  uploadedByUserId String
+  documentType String // GSTR1_SOURCE | GSTR2B_SOURCE | PURCHASE_BILL | EXPENSE_RECEIPT | BANK_STATEMENT | OTHER
+  period      String?
+  fileName    String
+  mimeType    String
+  storageUrl  String?
+  storagePath String?
+  createdAt   DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@index([businessId, period, documentType])
 }
 
 // GSTR-2A/2B reconciliation — matches your purchase records

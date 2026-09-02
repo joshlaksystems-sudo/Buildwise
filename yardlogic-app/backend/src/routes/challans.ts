@@ -15,12 +15,28 @@ const lineSchema = z.object({
 const challanSchema = z.object({
   customerId: z.string().optional(),
   lines: z.array(lineSchema).min(1),
+  vehicleNumber: z.string().trim().max(30).optional(),
+  transporterId: z.string().trim().max(100).optional(),
+  notes: z.string().trim().max(2000).optional(),
 });
 
 challansRouter.post("/", async (req: AuthedRequest, res) => {
+  const clientRequestId = req.header("X-Idempotency-Key")?.trim();
+  if (clientRequestId && clientRequestId.length > 120) return res.status(400).json({ error: "X-Idempotency-Key is too long" });
   const parsed = challanSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const { customerId, lines } = parsed.data;
+  const { customerId, lines, vehicleNumber, transporterId, notes } = parsed.data;
+  if (clientRequestId) {
+    const previous = await prisma.deliveryChallan.findFirst({ where: { businessId: req.businessId, clientRequestId }, include: { items: true } });
+    if (previous) return res.status(200).json(previous);
+  }
+
+  if (customerId && !(await prisma.customer.findFirst({ where: { id: customerId, businessId: req.businessId }, select: { id: true } }))) {
+    return res.status(404).json({ error: "Customer not found" });
+  }
+  const itemIds = lines.flatMap((line) => line.itemId ? [line.itemId] : []);
+  const ownedItems = await prisma.item.findMany({ where: { id: { in: itemIds }, businessId: req.businessId }, select: { id: true } });
+  if (ownedItems.length !== new Set(itemIds).size) return res.status(422).json({ error: "One or more items do not belong to this business" });
 
   const count = await prisma.deliveryChallan.count({ where: { businessId: req.businessId } });
   const number = `DC-${String(count + 1).padStart(4, "0")}`;
@@ -30,6 +46,10 @@ challansRouter.post("/", async (req: AuthedRequest, res) => {
       businessId: req.businessId!,
       customerId,
       number,
+      vehicleNumber,
+      transporterId,
+      notes,
+      clientRequestId,
       items: { create: lines },
     },
     include: { items: true },
@@ -58,7 +78,8 @@ challansRouter.patch("/:id/deliver", async (req: AuthedRequest, res) => {
   await prisma.$transaction(async (tx) => {
     for (const line of challan.items) {
       if (line.itemId) {
-        await tx.item.update({ where: { id: line.itemId }, data: { currentStock: { decrement: line.quantity } } });
+        const updatedItem = await tx.item.updateMany({ where: { id: line.itemId, businessId: req.businessId, currentStock: { gte: line.quantity } }, data: { currentStock: { decrement: line.quantity } } });
+        if (updatedItem.count !== 1) throw new Error("Insufficient stock for one or more challan items");
         await tx.stockMovement.create({
           data: { businessId: req.businessId!, itemId: line.itemId, change: -line.quantity, reason: "CHALLAN", refId: challan.id },
         });

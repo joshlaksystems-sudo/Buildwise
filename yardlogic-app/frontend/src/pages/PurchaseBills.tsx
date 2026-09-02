@@ -43,6 +43,8 @@ export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) 
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [requestId, setRequestId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [formData, setFormData] = useState<Partial<PurchaseBill>>({});
   const [items, setItems] = useState<any[]>([]);
@@ -135,6 +137,7 @@ export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) 
   };
 
   const handleSaveBill = async () => {
+    if (saving) return;
     if (!formData.supplierId || items.length === 0) {
       alert("Please select a supplier and add items");
       return;
@@ -142,6 +145,7 @@ export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) 
 
     const { subTotal, taxTotal, grandTotal } = calculateTotals();
 
+    setSaving(true);
     try {
       const billPayload = {
         supplierId: formData.supplierId,
@@ -163,6 +167,8 @@ export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) 
           taxRate: item.taxRate || 0,
         })),
       };
+      const idempotencyKey = requestId || crypto.randomUUID();
+      if (!requestId) setRequestId(idempotencyKey);
 
       if (formData.id) {
         // Update
@@ -174,6 +180,7 @@ export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) 
         // Create
         await api("/purchase-bills", {
           method: "POST",
+          headers: { "X-Idempotency-Key": idempotencyKey },
           body: JSON.stringify(billPayload),
         });
       }
@@ -181,11 +188,14 @@ export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) 
       setShowForm(false);
       setFormData({});
       setItems([]);
+      setRequestId(null);
       await fetchBills();
       alert("Bill saved successfully");
     } catch (error) {
       console.error("Error saving bill:", error);
       alert("Failed to save bill");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -541,8 +551,8 @@ export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) 
               <button className="btn-secondary" onClick={() => setShowForm(false)}>
                 Cancel
               </button>
-              <button className="btn-primary" onClick={handleSaveBill}>
-                Save Bill
+              <button className="btn-primary" onClick={handleSaveBill} disabled={saving}>
+                {saving ? "Saving..." : "Save Bill"}
               </button>
             </div>
           </div>

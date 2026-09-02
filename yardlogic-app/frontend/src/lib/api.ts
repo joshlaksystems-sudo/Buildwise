@@ -25,7 +25,7 @@ export async function api<T = any>(path: string, options: RequestInit = {}): Pro
         ...options,
         signal,
         headers: {
-          "Content-Type": "application/json",
+          ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
           ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
           ...(getBusinessId() ? { "X-Business-Id": getBusinessId()! } : {}),
           ...options.headers,

@@ -27,6 +27,10 @@ export const TABLE_ENUMS: Record<string, Record<string, string[]>> = {
     payment_mode: ["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"],
   },
   estimates: { status: ["OPEN", "CONVERTED", "EXPIRED"] },
+  purchase_bills: {
+    status: ["DRAFT", "RECEIVED", "PARTIAL", "PAID", "CANCELLED"],
+    payment_mode: ["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"],
+  },
   delivery_challans: { status: ["PENDING", "DELIVERED", "CANCELLED"] },
   payments: {
     mode: ["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"],
@@ -38,5 +42,6 @@ export const ALLOWED_TABLES = [
   "businesses", "users", "user_business", "customers", "suppliers",
   "items", "stock_movements", "invoices", "invoice_items",
   "estimates", "estimate_items", "delivery_challans",
+  "purchase_bills", "purchase_bill_items",
   "delivery_challan_items", "expenses", "payments", "salesman_logs",
 ];

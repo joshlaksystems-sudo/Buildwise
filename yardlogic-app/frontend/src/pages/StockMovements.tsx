@@ -180,11 +180,12 @@ export const StockMovements: React.FC<{ businessId: string }> = ({ businessId })
                 <label>Quantity Change *</label>
                 <input
                   type="number"
+                  min="0.01"
                   value={formData.quantity}
                   onChange={(e) =>
                     setFormData({ ...formData, quantity: parseFloat(e.target.value) || 0 })
                   }
-                  placeholder="Positive or negative number"
+                  placeholder="e.g. 10 to add, -2 to remove"
                 />
                 <small>Positive = add stock, Negative = remove stock</small>
               </div>

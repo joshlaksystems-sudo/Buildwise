@@ -24,10 +24,13 @@ const invoiceSchema = z.object({
   lines: z.array(lineSchema).min(1),
   paymentMode: z.enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"]).optional(),
   amountPaid: z.number().min(0).default(0),
+  dueDate: z.string().datetime().optional(),
+  notes: z.string().trim().max(2000).optional(),
+  terms: z.string().trim().max(2000).optional(),
 });
 
 // Automated, gap-free bill numbering per business: INV-0001, INV-0002...
-async function nextInvoiceNumber(businessId: string) {
+export async function nextInvoiceNumber(businessId: string) {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
     select: { invoicePrefix: true, invoiceStartNumber: true },
@@ -54,9 +57,11 @@ function computeLine(line: z.infer<typeof lineSchema>) {
 }
 
 invoicesRouter.post("/", async (req: AuthedRequest, res) => {
+  const clientRequestId = req.header("X-Idempotency-Key")?.trim();
+  if (clientRequestId && clientRequestId.length > 120) return res.status(400).json({ error: "X-Idempotency-Key is too long" });
   const parsed = invoiceSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const { customerId, type, lines, paymentMode, amountPaid } = parsed.data;
+  const { customerId, type, lines, paymentMode, amountPaid, dueDate, notes, terms } = parsed.data;
 
   let subTotal = 0;
   let taxTotal = 0;
@@ -87,6 +92,11 @@ invoicesRouter.post("/", async (req: AuthedRequest, res) => {
   if (customerId) {
     const customer = await prisma.customer.findFirst({ where: { id: customerId, businessId: req.businessId }, select: { id: true } });
     if (!customer) return res.status(404).json({ error: "Customer not found" });
+  }
+
+  if (clientRequestId) {
+    const previous = await prisma.invoice.findFirst({ where: { businessId: req.businessId, clientRequestId }, include: { items: true } });
+    if (previous) return res.status(200).json(previous);
   }
 
   // Dealer/distributor credit limit enforcement (Step 6). Only
@@ -127,6 +137,10 @@ invoicesRouter.post("/", async (req: AuthedRequest, res) => {
         grandTotal,
         amountPaid,
         paymentMode,
+        dueDate: dueDate ? new Date(dueDate) : undefined,
+        notes,
+        terms,
+        clientRequestId,
         status,
         items: { create: computed },
       },
@@ -136,10 +150,8 @@ invoicesRouter.post("/", async (req: AuthedRequest, res) => {
     // Deduct stock for every line tied to a real inventory item.
     for (const line of computed) {
       if (line.itemId) {
-        await tx.item.update({
-          where: { id: line.itemId },
-          data: { currentStock: { decrement: line.quantity } },
-        });
+        const updatedItem = await tx.item.updateMany({ where: { id: line.itemId, businessId: req.businessId, currentStock: { gte: line.quantity } }, data: { currentStock: { decrement: line.quantity } } });
+        if (updatedItem.count !== 1) throw new Error("Insufficient stock for one or more invoice items");
         await tx.stockMovement.create({
           data: {
             businessId: req.businessId!,

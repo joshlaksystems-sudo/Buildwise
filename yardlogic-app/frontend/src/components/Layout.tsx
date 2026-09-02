@@ -34,7 +34,24 @@ export function Layout() {
 
   useEffect(() => {
     const stored = localStorage.getItem("businesses");
-    if (stored) setBusinesses(JSON.parse(stored));
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored);
+      if (!Array.isArray(parsed)) return;
+      const memberships = parsed.filter((entry): entry is BusinessMembership => Boolean(entry?.business?.id && entry?.business?.name && entry?.role));
+      setBusinesses(memberships);
+      const storedId = localStorage.getItem("businessId");
+      const validId = memberships.some((entry) => entry.business.id === storedId) ? storedId : memberships[0]?.business.id;
+      if (validId && validId !== storedId) {
+        localStorage.setItem("businessId", validId);
+        setActiveId(validId);
+      }
+    } catch {
+      localStorage.removeItem("businesses");
+      localStorage.removeItem("businessId");
+      setBusinesses([]);
+      setActiveId("");
+    }
   }, []);
 
   // Switching business changes X-Business-Id for every subsequent
@@ -42,6 +59,7 @@ export function Layout() {
   // business's data only, since the backend now verifies membership
   // per-request rather than trusting this value blindly.
   function switchBusiness(id: string) {
+    if (!businesses.some((business) => business.business.id === id)) return;
     localStorage.setItem("businessId", id);
     setActiveId(id);
     navigate(0); // reload so every page refetches under the new business

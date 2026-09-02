@@ -57,12 +57,12 @@ export function Items() {
       <section style={{ background: "var(--paper-raised)", border: "1px solid var(--rule)", padding: 20, marginBottom: 32 }}>
         <h2 style={{ fontSize: 16, marginBottom: 16 }}>Add item</h2>
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
-          <input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <input placeholder="Barcode" value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} />
-          <input type="number" placeholder="Sale price" value={form.salePrice} onChange={(e) => setForm({ ...form, salePrice: Number(e.target.value) })} />
-          <input type="number" placeholder="Purchase price" value={form.purchasePrice} onChange={(e) => setForm({ ...form, purchasePrice: Number(e.target.value) })} />
-          <input type="number" placeholder="Opening stock" value={form.openingStock} onChange={(e) => setForm({ ...form, openingStock: Number(e.target.value) })} />
-          <input type="number" placeholder="Reorder at" value={form.lowStockAlert} onChange={(e) => setForm({ ...form, lowStockAlert: Number(e.target.value) })} />
+          <label>Item name<input placeholder="e.g. OPC Cement 50kg" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+          <label>Barcode<input placeholder="Optional barcode" value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} /></label>
+          <label>Sale price<input type="number" min="0" placeholder="0.00" value={form.salePrice} onChange={(e) => setForm({ ...form, salePrice: Number(e.target.value) })} /></label>
+          <label>Purchase price<input type="number" min="0" placeholder="0.00" value={form.purchasePrice} onChange={(e) => setForm({ ...form, purchasePrice: Number(e.target.value) })} /></label>
+          <label>Opening stock<input type="number" min="0" placeholder="0" value={form.openingStock} onChange={(e) => setForm({ ...form, openingStock: Number(e.target.value) })} /></label>
+          <label>Reorder at<input type="number" min="0" placeholder="5" value={form.lowStockAlert} onChange={(e) => setForm({ ...form, lowStockAlert: Number(e.target.value) })} /></label>
         </div>
         <button className="gold" onClick={add} disabled={!form.name}>Add to inventory</button>
       </section>

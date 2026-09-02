@@ -313,6 +313,28 @@ export async function uploadReceiptToGCS(
   }
 }
 
+export async function uploadComplianceDocumentToGCS(
+  fileBuffer: Buffer,
+  fileName: string,
+  mimeType: string,
+  businessId: string,
+  documentType: string,
+  period?: string
+): Promise<{ url: string; path: string } | null> {
+  try {
+    if (!storage) return null;
+    const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const objectPath = `compliance/${businessId}/${period || "unperiodized"}/${documentType}/${Date.now()}-${safeName}`;
+    const file = storage.bucket(gcsBucket).file(objectPath);
+    await file.save(fileBuffer, { metadata: { contentType: mimeType } });
+    const [url] = await file.getSignedUrl({ version: "v4", action: "read", expires: Date.now() + 7 * 24 * 60 * 60 * 1000 });
+    return { url, path: objectPath };
+  } catch (error) {
+    console.error("Error uploading compliance document:", error);
+    return null;
+  }
+}
+
 // Get signed URL for GCS object
 export async function getSignedUrlFromGCS(objectPath: string, expiresIn = 3600): Promise<string | null> {
   try {

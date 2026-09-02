@@ -52,6 +52,8 @@ async function getNextBillNumber(businessId: string): Promise<string> {
 // Create purchase bill (auto-increment stock)
 purchaseBillsRouter.post("/", async (req: AuthedRequest, res) => {
   try {
+    const clientRequestId = req.header("X-Idempotency-Key")?.trim();
+    if (clientRequestId && clientRequestId.length > 120) return res.status(400).json({ error: "X-Idempotency-Key is too long" });
     const parsed = billSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.flatten() });
@@ -59,6 +61,10 @@ purchaseBillsRouter.post("/", async (req: AuthedRequest, res) => {
 
     const { supplierId, items, subTotal, discount, taxTotal, grandTotal, paymentMode, dueDate, referenceNumber } =
       parsed.data;
+    if (clientRequestId) {
+      const previous = await prisma.purchaseBill.findFirst({ where: { businessId: req.businessId, clientRequestId }, include: { items: true } });
+      if (previous) return res.status(200).json(previous);
+    }
 
     // Verify supplier belongs to this business
     const supplier = await prisma.supplier.findUnique({ where: { id: supplierId } });
@@ -92,6 +98,7 @@ purchaseBillsRouter.post("/", async (req: AuthedRequest, res) => {
         paymentMode: paymentMode as any,
         dueDate: dueDate ? new Date(dueDate) : undefined,
         referenceNumber,
+        clientRequestId,
         items: {
           create: items.map((item) => ({
             name: item.name,
@@ -222,36 +229,32 @@ purchaseBillsRouter.patch("/:id", async (req: AuthedRequest, res) => {
     }
 
     const { items, ...updateData } = parsed.data;
-
-    // Remove old items
-    await prisma.purchaseBillItem.deleteMany({ where: { billId: req.params.id } });
-
-    // Reverse old stock movements
-    await prisma.stockMovement.deleteMany({ where: { refId: req.params.id } });
-    const oldItems = await prisma.purchaseBillItem.findMany({ where: { billId: req.params.id } });
-    for (const item of oldItems) {
-      if (item.itemId) {
-        await prisma.item.update({
-          where: { id: item.itemId },
-          data: { currentStock: { decrement: item.quantity } },
-        });
-      }
+    const itemIds = items.flatMap((item) => item.itemId ? [item.itemId] : []);
+    const ownedItems = await prisma.item.findMany({ where: { id: { in: itemIds }, businessId: req.businessId }, select: { id: true } });
+    if (ownedItems.length !== new Set(itemIds).size) {
+      return res.status(422).json({ error: "One or more items do not belong to this business" });
     }
 
-    // Update bill
-    const updated = await prisma.purchaseBill.update({
-      where: { id: req.params.id },
-      data: {
-        number: updateData.number,
-        subTotal: updateData.subTotal,
-        discount: updateData.discount,
-        taxTotal: updateData.taxTotal,
-        grandTotal: updateData.grandTotal,
-        paymentMode: updateData.paymentMode ? (updateData.paymentMode as any) : undefined,
-        dueDate: updateData.dueDate ? new Date(updateData.dueDate) : undefined,
-        referenceNumber: updateData.referenceNumber,
-        items: {
-          create: items.map((item) => ({
+    const updated = await prisma.$transaction(async (tx) => {
+      const oldItems = await tx.purchaseBillItem.findMany({ where: { billId: req.params.id } });
+      for (const item of oldItems) {
+        if (item.itemId) await tx.item.update({ where: { id: item.itemId }, data: { currentStock: { decrement: item.quantity } } });
+      }
+      await tx.stockMovement.deleteMany({ where: { refId: req.params.id } });
+      await tx.purchaseBillItem.deleteMany({ where: { billId: req.params.id } });
+
+      const bill = await tx.purchaseBill.update({
+        where: { id: req.params.id },
+        data: {
+          number: updateData.number,
+          subTotal: updateData.subTotal,
+          discount: updateData.discount,
+          taxTotal: updateData.taxTotal,
+          grandTotal: updateData.grandTotal,
+          paymentMode: updateData.paymentMode ? (updateData.paymentMode as any) : undefined,
+          dueDate: updateData.dueDate ? new Date(updateData.dueDate) : undefined,
+          referenceNumber: updateData.referenceNumber,
+          items: { create: items.map((item) => ({
             name: item.name,
             itemId: item.itemId,
             quantity: item.quantity,
@@ -259,40 +262,18 @@ purchaseBillsRouter.patch("/:id", async (req: AuthedRequest, res) => {
             discount: item.discount,
             taxRate: item.taxRate,
             lineTotal: (item.quantity * item.unitPrice - item.discount) * (1 + item.taxRate / 100),
-          })),
+          })) },
         },
-      },
-      include: { items: true },
-    });
+        include: { items: true },
+      });
 
-    // Re-add new stock movements
-    for (const item of items) {
-      if (item.itemId) {
-        await prisma.item.update({
-          where: { id: item.itemId },
-          data: { currentStock: { increment: item.quantity } },
-        });
-
-        await prisma.stockMovement.create({
-          data: {
-            businessId: req.businessId!,
-            itemId: item.itemId,
-            change: item.quantity,
-            reason: "PURCHASE",
-            refId: req.params.id,
-            note: `Bill #${updated.number}`,
-          },
-        });
+      for (const item of items) {
+        if (item.itemId) {
+          await tx.item.update({ where: { id: item.itemId }, data: { currentStock: { increment: item.quantity } } });
+          await tx.stockMovement.create({ data: { businessId: req.businessId!, itemId: item.itemId, change: item.quantity, reason: "PURCHASE", refId: bill.id, note: `Bill #${bill.number}` } });
+        }
       }
-    }
-
-    await writeAudit({
-      businessId: req.businessId!,
-      userId: req.userId,
-      action: "purchasebill.update",
-      entityType: "PurchaseBill",
-      entityId: bill.id,
-      detail: { number: bill.number },
+      return bill;
     });
 
     res.json(updated);
@@ -306,7 +287,6 @@ purchaseBillsRouter.patch("/:id", async (req: AuthedRequest, res) => {
 purchaseBillsRouter.post("/:id/pay", async (req: AuthedRequest, res) => {
   try {
     const { amount, mode } = req.body;
-
     if (!amount || amount <= 0) {
       return res.status(400).json({ error: "Invalid payment amount" });
     }
