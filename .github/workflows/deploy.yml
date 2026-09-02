@@ -192,8 +192,14 @@ jobs:
         run: |
           set -euo pipefail
           health_url="${VITE_API_URL%/}/health"
-          response="$(curl --fail --silent --show-error --max-time 30 "$health_url")"
-          test "$response" = '{"ok":true}'
+          response="$(curl --fail --silent --show-error --max-time 30 "$health_url")" || {
+            echo "Backend health request failed: $health_url"
+            exit 1
+          }
+          if ! printf '%s' "$response" | jq -e '.ok == true' > /dev/null; then
+            echo "Backend health response was not {\"ok\":true}: $response"
+            exit 1
+          fi
           echo "Backend health check passed: $health_url"
 
   frontend:
