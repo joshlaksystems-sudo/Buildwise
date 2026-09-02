@@ -43,8 +43,11 @@ jobs:
             npx prisma migrate resolve --applied 20260902025148_add_business_profile_and_purchase_bills || true &&
             npx prisma migrate resolve --applied 20260902044054_add_payment_reconciliation || true &&
             npx prisma migrate resolve --applied 20260902045104_add_notifications_system || true &&
-            npx prisma migrate deploy
+            npx prisma migrate deploy || exit 1
           )
+
+      - name: Clean stale Vercel config
+        run: rm -rf .vercel
 
       # Non-destructive: creates the dataset/tables only if missing,
       # never alters or drops existing ones.
