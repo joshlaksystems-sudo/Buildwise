@@ -49,6 +49,10 @@ jobs:
               exit 1
             fi
           done
+          case "$VITE_API_URL" in
+            https://*.vercel.app|https://*.vercel.app/) ;;
+            *) echo "VITE_API_URL must be the deployed HTTPS backend URL, not localhost or a placeholder"; exit 1 ;;
+          esac
           echo "Required deployment secrets are present."
 
       - name: Install dependencies
@@ -127,7 +131,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: yardlogic-app/frontend/package-lock.json
 
@@ -147,4 +151,13 @@ jobs:
         run: rm -rf .vercel
 
       - name: Deploy frontend to Vercel
-        run: npx vercel@latest deploy --prod --yes --token="${{ secrets.VERCEL_TOKEN }}" --scope="${{ secrets.VERCEL_ORG_ID }}" --project="${{ secrets.VERCEL_FRONTEND_PROJECT_ID }}"
+        run: |
+          npx vercel@latest deploy --prod --yes \
+            --token="${{ secrets.VERCEL_TOKEN }}" \
+            --scope="${{ secrets.VERCEL_ORG_ID }}" \
+            --project="${{ secrets.VERCEL_FRONTEND_PROJECT_ID }}" \
+            --build-env "VITE_API_URL=${{ secrets.VITE_API_URL }}" \
+            --build-env "VITE_COMPANY_NAME=${{ secrets.VITE_COMPANY_NAME }}" \
+            --build-env "VITE_PRODUCT_NAME=${{ secrets.VITE_PRODUCT_NAME }}" \
+            --build-env "VITE_GCS_BUCKET=${{ secrets.VITE_GCS_BUCKET }}" \
+            --build-env "VITE_GCP_PROJECT_ID=${{ secrets.VITE_GCP_PROJECT_ID }}"
