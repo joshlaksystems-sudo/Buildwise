@@ -51,12 +51,23 @@ authRouter.post("/signup", async (req, res) => {
   });
 
   const full = await userWithBusinesses(user.id);
-  await sendWelcomeEmail(identifier, name);
   res.status(201).json({ token: signToken(user.id), user: { id: user.id, name: user.name }, businesses: full!.businesses });
 });
 
+authRouter.post("/welcome-email", requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId } });
+    if (!user?.email) return res.status(400).json({ error: "Account has no email address" });
+    await sendWelcomeEmail(user.email, user.name);
+    res.json({ sent: true });
+  } catch (error) {
+    console.error("Welcome email failed:", error);
+    res.status(502).json({ error: "Account created, but welcome email could not be sent" });
+  }
+});
+
 const loginSchema = z.object({
-  identifier: z.string().min(3),
+  identifier: z.string().email(),
   password: z.string(),
   totpCode: z.string().optional(), // required only if the account has 2FA enabled
 });
@@ -65,9 +76,7 @@ authRouter.post("/login", async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { identifier, password, totpCode } = parsed.data;
-  const field = isEmail(identifier) ? "email" : "phone";
-
-  const user = await prisma.user.findFirst({ where: { [field]: identifier } as any });
+  const user = await prisma.user.findUnique({ where: { email: identifier } });
   if (!user?.passwordHash) return res.status(401).json({ error: "Invalid credentials" });
 
   const valid = await bcrypt.compare(password, user.passwordHash);

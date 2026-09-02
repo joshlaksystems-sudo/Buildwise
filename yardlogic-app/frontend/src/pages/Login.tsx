@@ -32,6 +32,9 @@ export function Login() {
       const data = await api<any>(path, { method: "POST", body: JSON.stringify(body) });
       storeSession(data);
       initSync();
+      if (mode === "register") {
+        void api("/auth/welcome-email", { method: "POST" }).catch(() => {});
+      }
       navigate("/");
     } catch (err: any) {
       setError(err.message || "Unable to continue");
