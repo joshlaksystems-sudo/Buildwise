@@ -154,8 +154,8 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.invoices` (
   business_id     STRING NOT NULL,
   customer_id     STRING,
   number          STRING NOT NULL,
-  type            STRING NOT NULL DEFAULT 'GST',
-  status          STRING NOT NULL DEFAULT 'UNPAID',
+  type            STRING DEFAULT 'GST' NOT NULL,
+  status          STRING DEFAULT 'UNPAID' NOT NULL,
   sub_total       FLOAT64 NOT NULL,
   discount        FLOAT64 DEFAULT 0,
   tax_total       FLOAT64 DEFAULT 0,
@@ -196,7 +196,7 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.estimates` (
   business_id           STRING NOT NULL,
   customer_id           STRING,
   number                STRING NOT NULL,
-  status                STRING NOT NULL DEFAULT 'OPEN',
+  status                STRING DEFAULT 'OPEN' NOT NULL,
   sub_total             FLOAT64 NOT NULL,
   tax_total             FLOAT64 DEFAULT 0,
   grand_total           FLOAT64 NOT NULL,
@@ -226,7 +226,7 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.delivery_challans` (
   business_id  STRING NOT NULL,
   customer_id  STRING,
   number       STRING NOT NULL,
-  status       STRING NOT NULL DEFAULT 'PENDING',
+  status       STRING DEFAULT 'PENDING' NOT NULL,
   created_at   TIMESTAMP NOT NULL
 )
 PARTITION BY DATE(created_at)
@@ -390,7 +390,7 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.gst_filings` (
   business_id    STRING NOT NULL,
   return_type    STRING NOT NULL,
   period         STRING NOT NULL,        -- "2026-08" or "2026-Q2"
-  status         STRING NOT NULL DEFAULT 'DRAFT',
+  status         STRING DEFAULT 'DRAFT' NOT NULL,
   taxable_value  FLOAT64 DEFAULT 0,
   tax_collected  FLOAT64 DEFAULT 0,
   itc_claimed    FLOAT64 DEFAULT 0,
@@ -410,7 +410,7 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.itc_reconciliations` (
   invoice_number  STRING NOT NULL,
   our_amount      FLOAT64,
   gstn_amount     FLOAT64,
-  match_status    STRING NOT NULL DEFAULT 'PENDING',
+  match_status    STRING DEFAULT 'PENDING' NOT NULL,
   created_at      TIMESTAMP NOT NULL
 )
 PARTITION BY DATE(created_at)
@@ -423,7 +423,7 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.eway_bills` (
   ewb_number      STRING,
   vehicle_number  STRING,
   transporter_id  STRING,
-  status          STRING NOT NULL DEFAULT 'PENDING',
+  status          STRING DEFAULT 'PENDING' NOT NULL,
   valid_until     TIMESTAMP,
   created_at      TIMESTAMP NOT NULL
 )
@@ -450,7 +450,7 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.campaigns` (
   channel      STRING NOT NULL,
   message      STRING NOT NULL,
   segment      STRING NOT NULL,   -- high_value | dormant | frequent | all
-  status       STRING NOT NULL DEFAULT 'DRAFT',
+  status       STRING DEFAULT 'DRAFT' NOT NULL,
   sent_count   INT64 DEFAULT 0,
   created_at   TIMESTAMP NOT NULL
 )
@@ -464,7 +464,7 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.payment_reminders` (
   invoice_id   STRING,
   customer_id  STRING,
   channel      STRING NOT NULL,
-  status       STRING NOT NULL DEFAULT 'PENDING',
+  status       STRING DEFAULT 'PENDING' NOT NULL,
   sent_at      TIMESTAMP,
   created_at   TIMESTAMP NOT NULL
 )
@@ -494,7 +494,7 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.bank_statement_lines` (
   description         STRING NOT NULL,
   amount              FLOAT64 NOT NULL,
   matched_payment_id  STRING,
-  status              STRING NOT NULL DEFAULT 'UNMATCHED',
+  status              STRING DEFAULT 'UNMATCHED' NOT NULL,
   created_at          TIMESTAMP NOT NULL
 )
 PARTITION BY DATE(date)
@@ -520,7 +520,7 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.sync_events` (
   row_id        STRING,
   problem       STRING NOT NULL,   -- what went wrong, in plain language
   resolution    STRING,            -- how it was resolved, or NULL if still open
-  status        STRING NOT NULL DEFAULT 'OPEN',  -- OPEN | RESOLVED | IGNORED
+  status        STRING DEFAULT 'OPEN' NOT NULL,  -- OPEN | RESOLVED | IGNORED
   created_at    TIMESTAMP NOT NULL
 )
 PARTITION BY DATE(created_at)
