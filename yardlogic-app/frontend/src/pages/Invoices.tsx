@@ -91,7 +91,10 @@ export function Invoices() {
     if (navigator.onLine) {
       const token = localStorage.getItem("token");
       const businessId = localStorage.getItem("businessId");
-      const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:4000"}/invoices/${id}/pdf`, {
+      const apiBaseUrl = import.meta.env.VITE_API_URL || (
+        import.meta.env.DEV ? "http://localhost:4000" : "https://yardlogic-backend.vercel.app"
+      );
+      const res = await fetch(`${apiBaseUrl}/invoices/${id}/pdf`, {
         headers: { Authorization: `Bearer ${token}`, "X-Business-Id": businessId || "" },
       });
       if (res.ok) {

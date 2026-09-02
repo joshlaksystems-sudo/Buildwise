@@ -26,6 +26,13 @@ const expenseSchema = z.object({
 expensesRouter.post("/", async (req: AuthedRequest, res) => {
   const parsed = expenseSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (parsed.data.supplierId) {
+    const supplier = await prisma.supplier.findFirst({
+      where: { id: parsed.data.supplierId, businessId: req.businessId },
+      select: { id: true },
+    });
+    if (!supplier) return res.status(404).json({ error: "Supplier not found" });
+  }
   const expense = await prisma.expense.create({ data: { ...parsed.data, businessId: req.businessId! } });
   res.status(201).json(expense);
 });

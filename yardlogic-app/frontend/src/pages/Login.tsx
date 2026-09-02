@@ -14,6 +14,8 @@ export function Login() {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [totpCode, setTotpCode] = useState("");
+  const [requiresTotp, setRequiresTotp] = useState(false);
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [error, setError] = useState("");
@@ -24,6 +26,7 @@ export function Login() {
     e.preventDefault();
     if (loading) return;
     setError("");
+    if (mode !== "login") setRequiresTotp(false);
     const normalizedIdentifier = identifier.trim().toLowerCase();
     if (!normalizedIdentifier || (!/^\S+@\S+\.\S+$/.test(normalizedIdentifier) && !/^\+?[0-9][0-9\s-]{7,19}$/.test(normalizedIdentifier))) {
       setError("Enter a valid email address or mobile number.");
@@ -45,7 +48,7 @@ export function Login() {
     try {
       const path = mode === "login" ? "/auth/login" : "/auth/signup";
       const body = mode === "login"
-        ? { identifier: normalizedIdentifier, password }
+        ? { identifier: normalizedIdentifier, password, ...(totpCode ? { totpCode } : {}) }
         : { identifier: normalizedIdentifier, password, name: name.trim(), businessName: businessName.trim() };
       const data = await api<any>(path, { method: "POST", body: JSON.stringify(body) });
       storeSession(data);
@@ -55,6 +58,9 @@ export function Login() {
       }
       navigate("/");
     } catch (err: any) {
+      if (mode === "login" && err.message === "2FA code required") {
+        setRequiresTotp(true);
+      }
       setError(err.message || "Unable to continue");
     } finally {
       setLoading(false);
@@ -74,6 +80,7 @@ export function Login() {
           {mode === "register" && <Field label="Business name" value={businessName} onChange={setBusinessName} />}
           <Field label="Email or mobile number" value={identifier} onChange={setIdentifier} />
           <Field label="Password" type="password" value={password} onChange={setPassword} />
+          {mode === "login" && requiresTotp && <Field label="Authenticator code" value={totpCode} onChange={setTotpCode} />}
           {error && <p style={{ color: "var(--red)", fontSize: 13 }}>{error}</p>}
           <button type="submit" style={{ width: "100%" }} disabled={loading || !identifier || password.length < 8 || (mode === "register" && (!name || !businessName))}>
             {loading ? "Please wait..." : mode === "login" ? "Log in" : "Create account"}

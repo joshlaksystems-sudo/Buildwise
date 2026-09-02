@@ -31,10 +31,11 @@ const allowedOrigins = (process.env.CORS_ORIGINS || "*")
 	.split(",")
 	.map((origin) => origin.trim())
 	.filter(Boolean);
+const isVercelOrigin = (origin: string) => /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin);
 
 app.use(cors({
 	origin: (origin, callback) => {
-		if (!origin || allowedOrigins.includes("*") || allowedOrigins.includes(origin)) {
+		if (!origin || allowedOrigins.includes("*") || allowedOrigins.includes(origin) || isVercelOrigin(origin)) {
 			callback(null, true);
 			return;
 		}
@@ -44,6 +45,7 @@ app.use(cors({
 app.use(express.json({ limit: "5mb" }));
 initializeGoogleCloud();
 
+app.get("/", (_req, res) => res.json({ ok: true, service: "yardlogic-backend" }));
 app.get("/health", (_req, res) => res.json({ ok: true }));
 app.get("/health/db", async (_req, res) => {
 	try {

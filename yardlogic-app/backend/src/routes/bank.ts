@@ -59,15 +59,24 @@ bankRouter.get("/", async (req: AuthedRequest, res) => {
 
 // Manual override for lines the auto-matcher missed.
 bankRouter.patch("/:id/match", async (req: AuthedRequest, res) => {
-  const { paymentId } = z.object({ paymentId: z.string() }).parse(req.body);
-  const line = await prisma.bankStatementLine.update({
+  const parsed = z.object({ paymentId: z.string() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { paymentId } = parsed.data;
+  const [existingLine, payment] = await Promise.all([
+    prisma.bankStatementLine.findFirst({ where: { id: req.params.id, businessId: req.businessId } }),
+    prisma.payment.findFirst({ where: { id: paymentId, businessId: req.businessId }, select: { id: true } }),
+  ]);
+  if (!existingLine || !payment) return res.status(404).json({ error: "Statement line or payment not found" });
+  const updated = await prisma.bankStatementLine.update({
     where: { id: req.params.id },
     data: { matchedPaymentId: paymentId, status: "MATCHED" },
   });
-  res.json(line);
+  res.json(updated);
 });
 
 bankRouter.patch("/:id/ignore", async (req: AuthedRequest, res) => {
-  const line = await prisma.bankStatementLine.update({ where: { id: req.params.id }, data: { status: "IGNORED" } });
-  res.json(line);
+  const line = await prisma.bankStatementLine.findFirst({ where: { id: req.params.id, businessId: req.businessId } });
+  if (!line) return res.status(404).json({ error: "Statement line not found" });
+  const updated = await prisma.bankStatementLine.update({ where: { id: line.id }, data: { status: "IGNORED" } });
+  res.json(updated);
 });

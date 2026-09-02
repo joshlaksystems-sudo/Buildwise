@@ -36,7 +36,8 @@ returnsRouter.post("/stock-adjustments", async (req: AuthedRequest, res) => {
       return res.status(400).json({ error: "Adjustment would result in negative stock" });
     }
 
-    // Update item stock
+    // StockMovement stores the database enum ADJUSTMENT; keep the more
+    // specific user-facing reason in the note for audit and reporting.
     const updated = await prisma.item.update({
       where: { id: itemId },
       data: {
@@ -50,8 +51,8 @@ returnsRouter.post("/stock-adjustments", async (req: AuthedRequest, res) => {
         businessId: req.businessId!,
         itemId,
         change: quantity,
-        reason: reason as any,
-        note,
+        reason: "ADJUSTMENT",
+        note: [reason, note].filter(Boolean).join(": "),
       },
     });
 
@@ -78,7 +79,7 @@ returnsRouter.get("/stock-adjustments", async (req: AuthedRequest, res) => {
 
     const where: any = {
       businessId: req.businessId,
-      reason: { in: ["ADJUSTMENT", "DAMAGE", "LOSS", "STOCK_CORRECTION"] },
+      reason: "ADJUSTMENT",
     };
 
     if (itemId) where.itemId = itemId;
@@ -146,6 +147,12 @@ returnsRouter.post("/sales-returns", async (req: AuthedRequest, res) => {
       const invoiceItem = invoice.items.find((ii) => ii.id === returnItem.invoiceItemId);
       if (!invoiceItem) {
         return res.status(400).json({ error: `Invoice item ${returnItem.invoiceItemId} not found` });
+      }
+      if (returnItem.quantity > invoiceItem.quantity) {
+        return res.status(400).json({ error: "Return quantity cannot exceed the invoiced quantity" });
+      }
+      if (returnItem.itemId && returnItem.itemId !== invoiceItem.itemId) {
+        return res.status(400).json({ error: "Returned item does not match the invoice line" });
       }
 
       const lineTotal = invoiceItem.lineTotal * (returnItem.quantity / invoiceItem.quantity);
@@ -317,6 +324,12 @@ returnsRouter.post("/purchase-returns", async (req: AuthedRequest, res) => {
       const billItem = bill.items.find((bi) => bi.id === returnItem.billItemId);
       if (!billItem) {
         return res.status(400).json({ error: `Bill item ${returnItem.billItemId} not found` });
+      }
+      if (returnItem.quantity > billItem.quantity) {
+        return res.status(400).json({ error: "Return quantity cannot exceed the billed quantity" });
+      }
+      if (returnItem.itemId && returnItem.itemId !== billItem.itemId) {
+        return res.status(400).json({ error: "Returned item does not match the bill line" });
       }
 
       const lineTotal = billItem.lineTotal * (returnItem.quantity / billItem.quantity);

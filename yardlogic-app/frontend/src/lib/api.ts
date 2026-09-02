@@ -1,4 +1,6 @@
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+const BASE_URL = import.meta.env.VITE_API_URL || (
+  import.meta.env.DEV ? "http://localhost:4000" : "https://yardlogic-backend.vercel.app"
+);
 const REQUEST_TIMEOUT_MS = 15000;
 const MAX_GET_RETRIES = 2;
 
