@@ -2,7 +2,6 @@
 CREATE TABLE "AIWallet" (
     "id" TEXT NOT NULL,
     "businessId" TEXT NOT NULL,
-    "walletId" TEXT NOT NULL,
     "balance" DECIMAL(12,2) NOT NULL DEFAULT 0,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -13,6 +12,7 @@ CREATE TABLE "AIWallet" (
 CREATE TABLE "AIWalletTransaction" (
     "id" TEXT NOT NULL,
     "businessId" TEXT NOT NULL,
+    "walletId" TEXT NOT NULL,
     "amount" DECIMAL(12,2) NOT NULL,
     "type" TEXT NOT NULL,
     "operation" TEXT NOT NULL,
