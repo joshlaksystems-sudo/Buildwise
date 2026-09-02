@@ -68,7 +68,10 @@ jobs:
 
           for t in invoices payments expenses; do
             if ! bq show --table "${GOOGLE_CLOUD_PROJECT_ID}:${BIGQUERY_DATASET}.${t}" > /dev/null 2>&1; then
-              bq mk --table "${GOOGLE_CLOUD_PROJECT_ID}:${BIGQUERY_DATASET}.${t}" "bigquery/${t}_schema.json"
+              bq mk --table "${GOOGLE_CLOUD_PROJECT_ID}:${BIGQUERY_DATASET}.${t}" "bigquery/${t}_schema.json" || \
+                echo "Table ${t} already exists or creation failed; continuing."
+            else
+              echo "Table ${t} already exists, skipping creation."
             fi
           done
           rm -f /tmp/gcp-key.json
