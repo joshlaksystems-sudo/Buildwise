@@ -23,6 +23,7 @@ import { returnsRouter } from "./routes/returns";
 import { creditDebitNotesRouter } from "./routes/creditDebitNotes";
 import { bankStatementsRouter } from "./routes/bankStatements";
 import { notificationsRouter } from "./routes/notifications";
+import { prisma } from "./lib/prisma";
 
 const app = express();
 app.use(cors());
@@ -30,6 +31,15 @@ app.use(express.json({ limit: "5mb" }));
 initializeGoogleCloud();
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
+app.get("/health/db", async (_req, res) => {
+	try {
+		await prisma.$queryRaw`SELECT 1`;
+		res.json({ ok: true, database: "connected" });
+	} catch (error) {
+		console.error("Database health check failed:", error);
+		res.status(503).json({ ok: false, database: "unavailable" });
+	}
+});
 app.use("/auth", authRouter);
 app.use("/business", businessRouter);
 app.use("/items", itemsRouter);
