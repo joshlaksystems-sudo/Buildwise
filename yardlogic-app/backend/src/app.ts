@@ -25,6 +25,7 @@ import { creditDebitNotesRouter } from "./routes/creditDebitNotes";
 import { bankStatementsRouter } from "./routes/bankStatements";
 import { notificationsRouter } from "./routes/notifications";
 import { advancedWorkflowsRouter } from "./routes/advancedWorkflows";
+import { whatsappRouter } from "./routes/whatsapp";
 import { prisma } from "./lib/prisma";
 
 const app = express();
@@ -57,6 +58,7 @@ app.get("/health/db", async (_req, res) => {
 		res.status(503).json({ ok: false, database: "unavailable" });
 	}
 });
+app.use(whatsappRouter);
 app.use("/auth", authRouter);
 app.use("/business", businessRouter);
 app.use("/items", itemsRouter);
