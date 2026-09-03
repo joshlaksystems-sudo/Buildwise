@@ -71,6 +71,8 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Apply Prisma migrations
+        env:
+          PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK: "1"
         run: |
           set -euo pipefail
           # Neon pooled connections can hold Prisma's migration advisory lock
