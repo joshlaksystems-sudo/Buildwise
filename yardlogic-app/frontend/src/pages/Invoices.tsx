@@ -32,6 +32,7 @@ export function Invoices() {
   const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
   const [historyFilter, setHistoryFilter] = useState("ALL");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [paymentEdited, setPaymentEdited] = useState(false);
 
   function refresh() {
     api("/invoices").then(setInvoices).catch(() => {});
@@ -53,6 +54,11 @@ export function Invoices() {
 
   const subTotal = lines.reduce((s, l) => s + l.quantity * l.unitPrice - l.discount, 0);
   const tax = lines.reduce((s, l) => s + (l.quantity * l.unitPrice - l.discount) * (l.taxRate / 100), 0);
+  const invoiceTotal = Math.max(0, subTotal + tax);
+
+  useEffect(() => {
+    if (!paymentEdited && !editingId) setAmountPaid(invoiceTotal);
+  }, [invoiceTotal, paymentEdited, editingId]);
 
   async function submit() {
     if (lines.some((line) => !line.name.trim() || line.quantity <= 0 || line.unitPrice < 0 || line.discount < 0 || line.discount > line.quantity * line.unitPrice)) {
@@ -78,6 +84,7 @@ export function Invoices() {
       setLines([{ name: "", quantity: 1, unitPrice: 0, taxRate: 18, discount: 0 }]);
       setCustomerId(""); setCustomerName(""); setCustomerPhone(""); setCustomerEmail("");
       setAmountPaid(0); setPaymentMode("CASH"); setDueDate(""); setFollowUpDate(""); setNotes(""); setTerms("");
+      setPaymentEdited(false);
       setRequestId(null);
       setEditingId(null);
       setActiveProductLine(null);
@@ -247,7 +254,7 @@ export function Invoices() {
         </div>
         <div className="invoice-form-grid">
           <label>Due date (optional)<input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></label>
-          <label>Amount paid<input type="number" min="0" max={subTotal + tax} value={amountPaid} onChange={(e) => setAmountPaid(Math.max(0, Number(e.target.value)))} /></label>
+          <label>Amount paid<input type="number" min="0" max={invoiceTotal} value={amountPaid} onChange={(e) => { setPaymentEdited(true); setAmountPaid(Math.max(0, Number(e.target.value))); }} /></label>
           {amountPaid > 0 && <label>Payment mode<select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}><option>CASH</option><option>UPI</option><option>CARD</option><option>BANK_TRANSFER</option><option>CHEQUE</option></select></label>}
           {amountPaid < subTotal + tax && <label>Credit follow-up date<input type="date" value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} required /></label>}
           <label>Notes<input placeholder="Optional note for customer" value={notes} onChange={(e) => setNotes(e.target.value)} /></label>

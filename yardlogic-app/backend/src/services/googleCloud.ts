@@ -19,11 +19,23 @@ let bigQuery: BigQuery;
 let storage: Storage;
 let vertexAI: VertexAI;
 
+function getServiceAccountCredentials(): Record<string, string> | undefined {
+  const raw = process.env.GCP_SERVICE_ACCOUNT_KEY;
+  if (!raw) return undefined;
+  try {
+    const credentials = JSON.parse(raw) as Record<string, string>;
+    if (!credentials.client_email || !credentials.private_key) return undefined;
+    return credentials;
+  } catch {
+    return undefined;
+  }
+}
+
 export function googleCloudStatus() {
   const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
   return {
     projectConfigured: Boolean(projectId),
-    credentialsConfigured: Boolean(credentialsPath && fs.existsSync(credentialsPath)),
+    credentialsConfigured: Boolean((credentialsPath && fs.existsSync(credentialsPath)) || getServiceAccountCredentials()),
     bigQueryInitialized: Boolean(bigQuery),
     storageInitialized: Boolean(storage),
     vertexAIInitialized: Boolean(vertexAI),
@@ -91,11 +103,11 @@ export function initializeGoogleCloud() {
       return;
     }
 
-    // Check for credentials and project id before touching the SDKs.
-    // Without both, the clients can't authenticate, so skip init entirely
-    // instead of letting VertexAI throw on construction.
+    // Prefer the JSON secret used by Vercel/GitHub Actions. A local file
+    // remains supported for local development.
     const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-    const hasCredentials = !!credentialsPath && fs.existsSync(credentialsPath);
+    const credentials = getServiceAccountCredentials();
+    const hasCredentials = Boolean(credentials || (credentialsPath && fs.existsSync(credentialsPath)));
 
     if (!projectId || !hasCredentials) {
       console.warn(
@@ -108,17 +120,20 @@ export function initializeGoogleCloud() {
     bigQuery = new BigQueryClass({
       projectId,
       location,
+      ...(credentials ? { credentials } : {}),
     });
 
     // Initialize Cloud Storage
     storage = new StorageClass({
       projectId,
+      ...(credentials ? { credentials } : {}),
     });
 
     // Initialize Vertex AI
     vertexAI = new VertexAIClass({
       project: projectId,
       location,
+      ...(credentials ? { googleAuthOptions: { credentials } } : {}),
     });
 
     console.log("✅ Google Cloud services initialized");
