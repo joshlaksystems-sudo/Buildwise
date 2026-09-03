@@ -19,22 +19,45 @@ let bigQuery: BigQuery;
 let storage: Storage;
 let vertexAI: VertexAI;
 
+export function googleCloudStatus() {
+  const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  return {
+    projectConfigured: Boolean(projectId),
+    credentialsConfigured: Boolean(credentialsPath && fs.existsSync(credentialsPath)),
+    bigQueryInitialized: Boolean(bigQuery),
+    storageInitialized: Boolean(storage),
+    vertexAIInitialized: Boolean(vertexAI),
+    vertexAIEnabled: process.env.VERTEX_AI_ENABLE === "true",
+    dataset,
+    location,
+  };
+}
+
 // Serverless platforms (Vercel) can't take a checked-in key file path —
 // GCP_SERVICE_ACCOUNT_KEY carries the same JSON as an env var instead,
 // written out to the writable /tmp dir once per cold start.
 function resolveGoogleApplicationCredentials() {
-  const existingPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  if (existingPath && fs.existsSync(existingPath)) return;
+  const configuredPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (configuredPath) {
+    const existingPath = path.isAbsolute(configuredPath)
+      ? configuredPath
+      : path.resolve(process.cwd(), configuredPath);
+    if (fs.existsSync(existingPath)) {
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = existingPath;
+      return;
+    }
+  }
 
   const keyJson = process.env.GCP_SERVICE_ACCOUNT_KEY;
   if (!keyJson) return;
 
   try {
     const keyPath = path.join(os.tmpdir(), "gcp-key.json");
-    fs.writeFileSync(keyPath, keyJson, { mode: 0o600 });
+    const parsedKey = JSON.parse(keyJson);
+    fs.writeFileSync(keyPath, JSON.stringify(parsedKey), { mode: 0o600 });
     process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
   } catch (error) {
-    console.warn("⚠️  Failed to write GCP_SERVICE_ACCOUNT_KEY to a temp file:", error instanceof Error ? error.message : error);
+    console.warn("⚠️  Failed to parse GCP_SERVICE_ACCOUNT_KEY:", error instanceof Error ? error.message : error);
   }
 }
 
@@ -154,7 +177,21 @@ export async function logInvoiceToBigQuery(invoice: InvoiceRecord): Promise<bool
     }
 
     const table = bigQuery.dataset(dataset).table("invoices");
-    await table.insert([invoice]);
+    await table.insert([{
+      id: invoice.invoiceId,
+      business_id: invoice.businessId,
+      customer_id: invoice.customerId,
+      customer_name: invoice.customerName,
+      number: invoice.invoiceNumber,
+      status: invoice.status,
+      sub_total: invoice.amount - invoice.taxAmount,
+      tax_total: invoice.taxAmount,
+      grand_total: invoice.amount,
+      amount_paid: invoice.amountPaid,
+      due_date: invoice.dueDate,
+      created_at: invoice.createdAt,
+      updated_at: invoice.updatedAt,
+    }]);
     console.log(`✅ Invoice ${invoice.invoiceNumber} logged to BigQuery`);
     return true;
   } catch (error) {
@@ -172,7 +209,15 @@ export async function logPaymentToBigQuery(payment: PaymentRecord): Promise<bool
     }
 
     const table = bigQuery.dataset(dataset).table("payments");
-    await table.insert([payment]);
+    await table.insert([{
+      id: payment.paymentId,
+      business_id: payment.businessId,
+      invoice_id: payment.invoiceId,
+      amount: payment.amount,
+      mode: payment.mode,
+      direction: payment.direction,
+      created_at: payment.createdAt,
+    }]);
     console.log(`✅ Payment logged to BigQuery`);
     return true;
   } catch (error) {
@@ -190,7 +235,17 @@ export async function logExpenseToBigQuery(expense: ExpenseRecord): Promise<bool
     }
 
     const table = bigQuery.dataset(dataset).table("expenses");
-    await table.insert([expense]);
+    await table.insert([{
+      id: expense.expenseId,
+      business_id: expense.businessId,
+      category: expense.category,
+      amount: expense.amount,
+      tax_amount: expense.taxAmount,
+      note: expense.note,
+      ai_category_confidence: expense.aiCategoryConfidence,
+      payment_date: expense.date,
+      created_at: expense.createdAt,
+    }]);
     console.log(`✅ Expense logged to BigQuery`);
     return true;
   } catch (error) {
@@ -209,8 +264,8 @@ export async function queryInvoicesFromBigQuery(businessId: string, limit = 100)
 
     const query = `
       SELECT * FROM \`${projectId}.${dataset}.invoices\`
-      WHERE businessId = @businessId
-      ORDER BY invoiceDate DESC
+      WHERE business_id = @businessId
+      ORDER BY created_at DESC
       LIMIT @limit
     `;
 
@@ -438,7 +493,7 @@ export async function categorizeExpenseWithVertexAI(receiptText: string): Promis
     }
 
     const model = vertexAI.getGenerativeModel({
-      model: process.env.VERTEX_AI_MODEL_ID || "gemini-1.5-pro",
+      model: process.env.VERTEX_AI_MODEL_ID || "gemini-2.5-flash",
       systemInstruction: `You are an accounting assistant for Buildwise by JC Nexus. Given raw receipt text, extract:
 - Total amount
 - Tax amount (GST if present in India)
@@ -472,7 +527,7 @@ export async function extractPurchaseBillWithVertexAI(receiptText: string): Prom
   if (process.env.VERTEX_AI_ENABLE !== "true") throw new Error("Vertex AI is disabled. Set VERTEX_AI_ENABLE=true");
 
   const model = vertexAI.getGenerativeModel({
-    model: process.env.VERTEX_AI_MODEL_ID || "gemini-1.5-pro",
+    model: process.env.VERTEX_AI_MODEL_ID || "gemini-2.5-flash",
     systemInstruction: `You extract purchase bills for an Indian accounting application. Read the OCR text and return ONLY valid JSON. Never invent missing values: use null and add a warning. Amounts are numbers in INR. Return exactly:
 {"supplierName":string|null,"supplierGstin":string|null,"billNumber":string|null,"billDate":"YYYY-MM-DD"|null,"items":[{"name":string,"quantity":number,"unitPrice":number,"taxRate":number,"lineTotal":number}],"subTotal":number,"taxTotal":number,"grandTotal":number,"confidence":number,"warnings":string[]}
 Use confidence from 0 to 1. If totals conflict with item calculations, keep the printed totals and add a warning.`
@@ -495,7 +550,7 @@ export async function organizeDocumentWithVertexAI(buffer: Buffer, mimeType: str
   if (process.env.VERTEX_AI_ENABLE !== "true") throw new Error("Vertex AI is disabled. Set VERTEX_AI_ENABLE=true");
 
   const model = vertexAI.getGenerativeModel({
-    model: process.env.VERTEX_AI_MODEL_ID || "gemini-1.5-pro",
+    model: process.env.VERTEX_AI_MODEL_ID || "gemini-2.5-flash",
     systemInstruction: `You classify business documents for an Indian small business. Choose exactly one documentType: GSTR1_SOURCE, GSTR2B_SOURCE, PURCHASE_BILL, EXPENSE_RECEIPT, BANK_STATEMENT, OTHER. Extract only visible facts. Never invent values. Return ONLY JSON in this exact shape:
 {"documentType":"PURCHASE_BILL","period":"YYYY-MM"|null,"confidence":0.0,"extractedData":{},"warnings":[]}
 extractedData may include supplierName, supplierGstin, billNumber, invoiceNumber, total, taxTotal, bankName, accountLast4, transactionCount, or documentDate. Use warnings for unreadable or conflicting fields.`

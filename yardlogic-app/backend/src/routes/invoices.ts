@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { AuthedRequest, requireAuth, signInvoiceAccessToken } from "../middleware/auth";
 import { generateInvoicePdf } from "../services/pdfService";
-import { uploadInvoiceToGCS } from "../services/googleCloud";
+import { logInvoiceToBigQuery, logPaymentToBigQuery, uploadInvoiceToGCS } from "../services/googleCloud";
 import { writeAudit } from "../services/audit";
 
 export const invoicesRouter = Router();
@@ -209,6 +209,38 @@ invoicesRouter.post("/", async (req: AuthedRequest, res) => {
     entityId: invoice.id,
     detail: { number: invoice.number, grandTotal: invoice.grandTotal },
   });
+
+  void logInvoiceToBigQuery({
+    invoiceId: invoice.id,
+    businessId: invoice.businessId,
+    invoiceNumber: invoice.number,
+    customerId: invoice.customerId || "",
+    customerName: invoice.customerName || "",
+    amount: invoice.grandTotal,
+    taxAmount: invoice.taxTotal,
+    discountAmount: invoice.discount,
+    status: invoice.status,
+    invoiceDate: invoice.createdAt.toISOString(),
+    dueDate: invoice.dueDate?.toISOString() || null,
+    amountPaid: invoice.amountPaid,
+    isPaid: invoice.status === "PAID",
+    createdAt: invoice.createdAt.toISOString(),
+    updatedAt: invoice.updatedAt.toISOString(),
+  });
+  if (amountPaid > 0) {
+    void logPaymentToBigQuery({
+      paymentId: `invoice:${invoice.id}`,
+      businessId: invoice.businessId,
+      invoiceId: invoice.id,
+      billId: null,
+      amount: amountPaid,
+      mode: paymentMode || "CASH",
+      direction: "IN",
+      reconciled: false,
+      date: invoice.createdAt.toISOString(),
+      createdAt: invoice.createdAt.toISOString(),
+    });
+  }
 
   res.status(201).json(invoice);
 });

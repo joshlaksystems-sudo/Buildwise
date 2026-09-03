@@ -2,7 +2,7 @@ import "express-async-errors";
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import { initializeGoogleCloud } from "./services/googleCloud";
+import { googleCloudStatus, initializeGoogleCloud } from "./services/googleCloud";
 import { authRouter } from "./routes/auth";
 import { itemsRouter } from "./routes/items";
 import { invoicesRouter } from "./routes/invoices";
@@ -57,6 +57,11 @@ app.get("/health/db", async (_req, res) => {
 		console.error("Database health check failed:", error);
 		res.status(503).json({ ok: false, database: "unavailable" });
 	}
+});
+app.get("/health/google-cloud", (_req, res) => {
+	const status = googleCloudStatus();
+	const ready = status.bigQueryInitialized && status.vertexAIInitialized;
+	res.status(ready ? 200 : 503).json({ ok: ready, ...status });
 });
 app.use(whatsappRouter);
 app.use("/auth", authRouter);
