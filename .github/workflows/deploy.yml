@@ -190,7 +190,7 @@ jobs:
         run: |
           set -euo pipefail
           health_url="${BACKEND_DEPLOYMENT_URL%/}/health"
-          response="$(curl --fail --silent --show-error --max-time 30 "$health_url")" || {
+          response="$(curl --fail --location --silent --show-error --max-time 30 "$health_url")" || {
             echo "Backend health request failed: $health_url"
             exit 1
           }
