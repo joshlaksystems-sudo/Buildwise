@@ -2,7 +2,7 @@ import "express-async-errors";
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import { googleCloudStatus, initializeGoogleCloud } from "./services/googleCloud";
+import { checkBigQueryConnection, googleCloudStatus, initializeGoogleCloud } from "./services/googleCloud";
 import { authRouter } from "./routes/auth";
 import { itemsRouter } from "./routes/items";
 import { invoicesRouter } from "./routes/invoices";
@@ -25,6 +25,9 @@ import { creditDebitNotesRouter } from "./routes/creditDebitNotes";
 import { bankStatementsRouter } from "./routes/bankStatements";
 import { notificationsRouter } from "./routes/notifications";
 import { advancedWorkflowsRouter } from "./routes/advancedWorkflows";
+import { operationsRouter } from "./routes/operations";
+import { growthRouter } from "./routes/growth";
+import { approvalsRouter } from "./routes/approvals";
 import { whatsappRouter } from "./routes/whatsapp";
 import { prisma } from "./lib/prisma";
 
@@ -58,10 +61,11 @@ app.get("/health/db", async (_req, res) => {
 		res.status(503).json({ ok: false, database: "unavailable" });
 	}
 });
-app.get("/health/google-cloud", (_req, res) => {
+app.get("/health/google-cloud", async (_req, res) => {
 	const status = googleCloudStatus();
-	const ready = status.bigQueryInitialized && status.vertexAIInitialized;
-	res.status(ready ? 200 : 503).json({ ok: ready, ...status });
+	const bigQueryConnection = await checkBigQueryConnection();
+	const ready = status.bigQueryInitialized && status.vertexAIInitialized && bigQueryConnection.ok;
+	res.status(ready ? 200 : 503).json({ ok: ready, ...status, bigQueryConnection });
 });
 app.use(whatsappRouter);
 app.use("/auth", authRouter);
@@ -86,6 +90,9 @@ app.use("/bank", bankRouter);
 app.use("/bank", bankStatementsRouter);
 app.use("/notifications", notificationsRouter);
 app.use("/advanced", advancedWorkflowsRouter);
+app.use("/operations", operationsRouter);
+app.use("/growth", growthRouter);
+app.use("/approvals", approvalsRouter);
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
 	console.error("Unhandled API error:", error);

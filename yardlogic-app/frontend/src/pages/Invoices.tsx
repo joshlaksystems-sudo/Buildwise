@@ -230,8 +230,9 @@ export function Invoices() {
           <label>Customer (optional)
           <select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
             <option value="">Walk-in / enter below</option>
-            {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+              {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}{customer.gstin ? ` · GSTIN ${customer.gstin}` : ""}</option>)}
           </select>
+            {customerId && customers.find((customer) => customer.id === customerId)?.gstin && <small>Customer GSTIN: {customers.find((customer) => customer.id === customerId)?.gstin}</small>}
           </label>
           <label>Invoice type
           <select value={invoiceType} onChange={(e) => setInvoiceType(e.target.value)}>
@@ -257,12 +258,12 @@ export function Invoices() {
           <div key={i} className="invoice-line">
             <label className="line-item-field">Product or item name
               <input autoComplete="off" placeholder="Start typing a product name" value={l.name} onFocus={() => setActiveProductLine(i)} onChange={(e) => { setActiveProductLine(i); typeInventoryItem(i, e.target.value); }} />
-              {activeProductLine === i && l.name.trim() && inventory.filter((item) => item.name.toLowerCase().includes(l.name.trim().toLowerCase())).length > 0 && <div className="product-suggestions">
-                {inventory.filter((item) => item.name.toLowerCase().includes(l.name.trim().toLowerCase())).slice(0, 8).map((item) => <button type="button" key={item.id} onMouseDown={(event) => event.preventDefault()} onClick={() => selectProduct(i, item)}><span>{item.name}</span><small>{item.currentStock} {item.unit} available</small></button>)}
+              {activeProductLine === i && inventory.length > 0 && <div className="product-suggestions">
+                {inventory.filter((item) => !l.name.trim() || item.name.toLowerCase().includes(l.name.trim().toLowerCase())).slice(0, 12).map((item) => <button type="button" key={item.id} onMouseDown={(event) => event.preventDefault()} onClick={() => selectProduct(i, item)}><span>{item.name}</span><small>{item.currentStock} {item.unit} available · Rs. {item.salePrice}</small></button>)}
               </div>}
               <small>{l.itemId ? `${inventory.find((item) => item.id === l.itemId)?.currentStock ?? 0} ${inventory.find((item) => item.id === l.itemId)?.unit ?? "units"} currently in stock` : "Saved products will fill price and GST automatically."}</small>
             </label>
-            <label>Quantity<input type="number" min="0.01" placeholder="0" value={l.quantity} onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })} /></label>
+            <label>Quantity{l.itemId && <small>{inventory.find((item) => item.id === l.itemId)?.unit}</small>}<input type="number" min="0.01" placeholder="0" value={l.quantity} onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })} /></label>
             <label>Unit price<input type="number" min="0" placeholder="0.00" value={l.unitPrice} onChange={(e) => updateLine(i, { unitPrice: Number(e.target.value) })} /></label>
             <label>GST %<input type="number" min="0" max="100" placeholder="18" value={l.taxRate} onChange={(e) => updateLine(i, { taxRate: Number(e.target.value) })} /></label>
             <label>Discount<input type="number" min="0" placeholder="0.00" value={l.discount} onChange={(e) => updateLine(i, { discount: Number(e.target.value) })} /></label>

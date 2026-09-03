@@ -33,6 +33,16 @@ export function googleCloudStatus() {
   };
 }
 
+export async function checkBigQueryConnection() {
+  if (!bigQuery) return { ok: false, error: "BigQuery client is not initialized" };
+  try {
+    await bigQuery.query({ query: "SELECT 1 AS ok", location });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 // Serverless platforms (Vercel) can't take a checked-in key file path —
 // GCP_SERVICE_ACCOUNT_KEY carries the same JSON as an env var instead,
 // written out to the writable /tmp dir once per cold start.
@@ -168,6 +178,18 @@ export interface ExpenseRecord {
   createdAt: string;
 }
 
+export interface InvoiceItemRecord {
+  id: string;
+  invoiceId: string;
+  itemId: string | null;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  discount: number;
+  taxRate: number;
+  lineTotal: number;
+}
+
 // Log invoice to BigQuery
 export async function logInvoiceToBigQuery(invoice: InvoiceRecord): Promise<boolean> {
   try {
@@ -196,6 +218,31 @@ export async function logInvoiceToBigQuery(invoice: InvoiceRecord): Promise<bool
     return true;
   } catch (error) {
     console.error(`❌ Error logging invoice to BigQuery:`, error);
+    return false;
+  }
+}
+
+export async function logInvoiceItemsToBigQuery(items: InvoiceItemRecord[]): Promise<boolean> {
+  if (!items.length) return true;
+  try {
+    if (!bigQuery) {
+      console.warn("⚠️  BigQuery not initialized");
+      return false;
+    }
+    await bigQuery.dataset(dataset).table("invoice_items").insert(items.map((item) => ({
+      id: item.id,
+      invoice_id: item.invoiceId,
+      item_id: item.itemId,
+      name: item.name,
+      quantity: item.quantity,
+      unit_price: item.unitPrice,
+      discount: item.discount,
+      tax_rate: item.taxRate,
+      line_total: item.lineTotal,
+    })));
+    return true;
+  } catch (error) {
+    console.error("❌ Error logging invoice items to BigQuery:", error);
     return false;
   }
 }

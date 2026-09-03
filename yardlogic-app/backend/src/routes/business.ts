@@ -123,16 +123,17 @@ router.patch(
         ifscCode,
       } = req.body;
 
-      // Check if all required fields are filled to mark setupComplete
+      // GSTIN is required only for GST-registered businesses. Retail,
+      // service, and other non-GST businesses can complete setup without it.
       const requiredFields = [
         name,
         ownerName,
         address,
         stateName,
         stateCode,
-        gstin,
       ];
-      const setupComplete = requiredFields.every((field) => field && typeof field === 'string' && field.trim());
+      const gstReady = !gstin || (typeof gstin === "string" && gstin.trim().length === 15);
+      const setupComplete = requiredFields.every((field) => field && typeof field === 'string' && field.trim()) && gstReady;
 
       const updatedBusiness = await prisma.business.update({
         where: { id },

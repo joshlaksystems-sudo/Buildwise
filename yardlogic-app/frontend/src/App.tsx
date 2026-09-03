@@ -20,6 +20,9 @@ const SalesReturns = lazy(() => import("./pages/SalesReturns").then((module) => 
 const CreditDebitNotes = lazy(() => import("./pages/CreditDebitNotes").then((module) => ({ default: module.CreditDebitNotes })));
 const StockMovements = lazy(() => import("./pages/StockMovements").then((module) => ({ default: module.StockMovements })));
 const BusinessProfile = lazy(() => import("./pages/BusinessProfile").then((module) => ({ default: module.BusinessProfile })));
+const Operations = lazy(() => import("./pages/Operations").then((module) => ({ default: module.Operations })));
+const Growth = lazy(() => import("./pages/Growth").then((module) => ({ default: module.Growth })));
+const Approvals = lazy(() => import("./pages/Approvals").then((module) => ({ default: module.Approvals })));
 
 function isAuthed() {
   return Boolean(localStorage.getItem("token"));
@@ -51,6 +54,9 @@ export default function App() {
           <Route path="reports" element={<Reports />} />
           <Route path="bank" element={<BankStatements businessId={businessId()} />} />
           <Route path="business-profile" element={<BusinessProfile businessId={businessId()} />} />
+          <Route path="operations" element={<Operations />} />
+          <Route path="growth" element={<Growth />} />
+          <Route path="approvals" element={<Approvals />} />
           <Route path="ask" element={<Ask />} />
         </Route>
       </Routes>

@@ -59,15 +59,28 @@ itemsRouter.post("/", async (req: AuthedRequest, res) => {
   const parsed = itemSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { openingStock, ...data } = parsed.data;
+  const normalizedName = data.name.trim();
+  const normalizedSku = data.sku?.trim() || undefined;
+  const normalizedBarcode = data.barcode?.trim() || undefined;
 
   const existing = await prisma.item.findFirst({
-    where: { businessId: req.businessId, name: { equals: data.name, mode: "insensitive" } },
+    where: {
+      businessId: req.businessId,
+      OR: [
+        { name: { equals: normalizedName, mode: "insensitive" } },
+        ...(normalizedSku ? [{ sku: { equals: normalizedSku, mode: "insensitive" as const } }] : []),
+        ...(normalizedBarcode ? [{ barcode: normalizedBarcode }] : []),
+      ],
+    },
   });
   if (existing) {
     const item = await prisma.item.update({
       where: { id: existing.id },
       data: {
         ...data,
+        name: normalizedName,
+        sku: normalizedSku,
+        barcode: normalizedBarcode,
         currentStock: { increment: openingStock },
         stockMoves: openingStock ? { create: { businessId: req.businessId!, change: openingStock, reason: "OPENING", note: "Added to existing product" } } : undefined,
       } as any,
@@ -78,6 +91,9 @@ itemsRouter.post("/", async (req: AuthedRequest, res) => {
   const item = await prisma.item.create({
     data: {
       ...data,
+      name: normalizedName,
+      sku: normalizedSku,
+      barcode: normalizedBarcode,
       businessId: req.businessId!,
       currentStock: openingStock,
       stockMoves: openingStock
@@ -96,6 +112,28 @@ itemsRouter.post("/", async (req: AuthedRequest, res) => {
   });
 
   res.status(201).json(item);
+});
+
+itemsRouter.post("/import", async (req: AuthedRequest, res) => {
+  const parsed = z.array(itemSchema).min(1).max(1000).safeParse(req.body.rows);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  let created = 0;
+  let merged = 0;
+  await prisma.$transaction(async (tx) => {
+    for (const row of parsed.data) {
+      const { openingStock, ...data } = row;
+      const name = data.name.trim();
+      const existing = await tx.item.findFirst({ where: { businessId: req.businessId, OR: [{ name: { equals: name, mode: "insensitive" } }, ...(data.sku ? [{ sku: { equals: data.sku.trim(), mode: "insensitive" as const } }] : []), ...(data.barcode ? [{ barcode: data.barcode.trim() }] : [])] } });
+      if (existing) {
+        await tx.item.update({ where: { id: existing.id }, data: { ...data, name, currentStock: { increment: openingStock } } as any });
+        merged += 1;
+      } else {
+        await tx.item.create({ data: { ...data, name, businessId: req.businessId!, currentStock: openingStock } as any });
+        created += 1;
+      }
+    }
+  });
+  res.status(201).json({ created, merged, total: parsed.data.length });
 });
 
 itemsRouter.patch("/:id", async (req: AuthedRequest, res) => {

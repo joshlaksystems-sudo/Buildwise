@@ -112,7 +112,7 @@ async function sendEmailOtp(email: string, code: string) {
   await sendGmailEmail(email, "Your YardLogic OTP", formatOtpMessage(email, code));
 }
 
-async function sendGmailEmail(email: string, subject: string, message: string) {
+export async function sendGmailEmail(email: string, subject: string, message: string) {
   const from = process.env.GMAIL_FROM_EMAIL;
   const accessToken = await getGmailAccessToken();
 

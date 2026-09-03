@@ -53,10 +53,12 @@ export function Items() {
         const result = await api<{ merged?: boolean }>("/items", { method: "POST", body: JSON.stringify(itemPayload) });
         setNotice(result.merged ? "Existing product found. Stock was added to that product instead of creating a duplicate." : "Product added to inventory.");
       } else {
-        await saveLocalFirst("item", {
-          ...itemPayload,
-          currentStock: form.openingStock,
-        });
+        const normalizedName = itemPayload.name.toLowerCase().trim();
+        const existing = items.find((item) => item.name.toLowerCase().trim() === normalizedName || (item.barcode && item.barcode === itemPayload.barcode));
+        await saveLocalFirst("item", existing
+          ? { ...existing, ...itemPayload, currentStock: (existing.currentStock || 0) + form.openingStock }
+          : { ...itemPayload, currentStock: form.openingStock });
+        setNotice(existing ? "Existing product found offline. Stock was added to that product and will sync." : "Product added to inventory offline.");
       }
       setForm({ name: "", unit: "PCS", salePrice: 0, purchasePrice: 0, taxRate: 18, openingStock: 0, lowStockAlert: 5, barcode: "" });
       await refresh();

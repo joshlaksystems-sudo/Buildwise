@@ -2,9 +2,9 @@ import { Router } from "express";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { AuthedRequest, requireAuth, signInvoiceAccessToken } from "../middleware/auth";
+import { AuthedRequest, requireAuth, requireRole, signInvoiceAccessToken } from "../middleware/auth";
 import { generateInvoicePdf } from "../services/pdfService";
-import { logInvoiceToBigQuery, logPaymentToBigQuery, uploadInvoiceToGCS } from "../services/googleCloud";
+import { logInvoiceItemsToBigQuery, logInvoiceToBigQuery, logPaymentToBigQuery, uploadInvoiceToGCS } from "../services/googleCloud";
 import { writeAudit } from "../services/audit";
 
 export const invoicesRouter = Router();
@@ -210,7 +210,7 @@ invoicesRouter.post("/", async (req: AuthedRequest, res) => {
     detail: { number: invoice.number, grandTotal: invoice.grandTotal },
   });
 
-  void logInvoiceToBigQuery({
+  const invoiceLogged = await logInvoiceToBigQuery({
     invoiceId: invoice.id,
     businessId: invoice.businessId,
     invoiceNumber: invoice.number,
@@ -227,8 +227,19 @@ invoicesRouter.post("/", async (req: AuthedRequest, res) => {
     createdAt: invoice.createdAt.toISOString(),
     updatedAt: invoice.updatedAt.toISOString(),
   });
+  const itemsLogged = await logInvoiceItemsToBigQuery(invoice.items.map((item) => ({
+    id: item.id,
+    invoiceId: item.invoiceId,
+    itemId: item.itemId,
+    name: item.name,
+    quantity: item.quantity,
+    unitPrice: item.unitPrice,
+    discount: item.discount,
+    taxRate: item.taxRate,
+    lineTotal: item.lineTotal,
+  })));
   if (amountPaid > 0) {
-    void logPaymentToBigQuery({
+    await logPaymentToBigQuery({
       paymentId: `invoice:${invoice.id}`,
       businessId: invoice.businessId,
       invoiceId: invoice.id,
@@ -242,7 +253,7 @@ invoicesRouter.post("/", async (req: AuthedRequest, res) => {
     });
   }
 
-  res.status(201).json(invoice);
+  res.status(201).json({ ...invoice, analytics: { invoiceLogged, itemsLogged } });
 });
 
 invoicesRouter.get("/", async (req: AuthedRequest, res) => {
@@ -310,7 +321,7 @@ invoicesRouter.patch("/:id", async (req: AuthedRequest, res) => {
   res.json(updated);
 });
 
-invoicesRouter.delete("/:id", async (req: AuthedRequest, res) => {
+invoicesRouter.delete("/:id", requireRole("OWNER", "ADMIN"), async (req: AuthedRequest, res) => {
   const cancelled = await prisma.invoice.updateMany({ where: { id: req.params.id, businessId: req.businessId, status: { not: "CANCELLED" } }, data: { status: "CANCELLED" } });
   if (!cancelled.count) return res.status(404).json({ error: "Invoice not found or already cancelled" });
   res.status(204).send();

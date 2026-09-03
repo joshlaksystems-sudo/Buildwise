@@ -75,6 +75,7 @@ model Business {
   aiTransactions      AIWalletTransaction[]
   aiDailyUsages       AIDailyUsage[]
   complianceDocuments ComplianceDocument[]
+  approvalRequests   ApprovalRequest[] @relation("ApprovalBusiness")
 }
 
 model User {
@@ -95,6 +96,8 @@ model User {
   notifications Notification[]           @relation("UserNotifications")
   preferences   NotificationPreference[] @relation("UserPreferences")
   aiDailyUsages AIDailyUsage[]
+  requestedApprovals ApprovalRequest[] @relation("ApprovalRequester")
+  reviewedApprovals ApprovalRequest[] @relation("ApprovalReviewer")
 }
 
 // Short-lived one-time codes for email/mobile login. A row is
@@ -880,6 +883,26 @@ model PaymentReminder {
   createdAt    DateTime  @default(now())
 
   @@index([businessId, status])
+}
+
+model ApprovalRequest {
+  id                String    @id @default(uuid())
+  businessId        String
+  requestedByUserId String
+  reviewedByUserId  String?
+  entityType        String
+  entityId          String
+  status            String    @default("PENDING")
+  note              String?
+  reviewedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  business  Business @relation("ApprovalBusiness", fields: [businessId], references: [id])
+  requester User     @relation("ApprovalRequester", fields: [requestedByUserId], references: [id])
+  reviewer  User?    @relation("ApprovalReviewer", fields: [reviewedByUserId], references: [id])
+
+  @@index([businessId, status, createdAt])
 }
 
 // ---------- Step 6: Security, audit, credit, reconciliation ----------
