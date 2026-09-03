@@ -249,6 +249,25 @@ export interface InvoiceItemRecord {
   lineTotal: number;
 }
 
+async function insertUsingTableSchema(tableName: string, values: Record<string, unknown>): Promise<void> {
+  const table = bigQuery.dataset(dataset).table(tableName);
+  const [metadata] = await table.getMetadata();
+  const schemaFields = metadata.schema?.fields || [];
+  const fields = new Map<string, { type?: string }>(schemaFields.map((field: { name: string; type?: string }) => [field.name, field] as [string, { type?: string }]));
+  const row: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(values)) {
+    if (fields.has(field)) {
+      const type = fields.get(field)?.type;
+      row[field] = type === "DATE" && typeof value === "string" ? value.slice(0, 10) : value;
+    }
+  }
+  const missingRequired = schemaFields
+    .filter((field: { name: string; mode?: string }) => field.mode === "REQUIRED" && row[field.name] === undefined)
+    .map((field: { name: string }) => field.name);
+  if (missingRequired.length) throw new Error(`${tableName} is missing required columns: ${missingRequired.join(", ")}`);
+  await table.insert([row]);
+}
+
 // Log invoice to BigQuery
 export async function logInvoiceToBigQuery(invoice: InvoiceRecord): Promise<boolean> {
   try {
@@ -257,22 +276,24 @@ export async function logInvoiceToBigQuery(invoice: InvoiceRecord): Promise<bool
       return false;
     }
 
-    const table = bigQuery.dataset(dataset).table("invoices");
-    await table.insert([{
-      id: invoice.invoiceId,
-      business_id: invoice.businessId,
-      customer_id: invoice.customerId,
-      customer_name: invoice.customerName,
-      number: invoice.invoiceNumber,
+    await insertUsingTableSchema("invoices", {
+      id: invoice.invoiceId, invoiceId: invoice.invoiceId,
+      business_id: invoice.businessId, businessId: invoice.businessId,
+      customer_id: invoice.customerId, customerId: invoice.customerId,
+      customer_name: invoice.customerName, customerName: invoice.customerName,
+      number: invoice.invoiceNumber, invoiceNumber: invoice.invoiceNumber,
       status: invoice.status,
-      sub_total: invoice.amount - invoice.taxAmount,
-      tax_total: invoice.taxAmount,
+      sub_total: invoice.amount - invoice.taxAmount, amount: invoice.amount - invoice.taxAmount,
+      discount: invoice.discountAmount, discountAmount: invoice.discountAmount,
+      tax_total: invoice.taxAmount, taxAmount: invoice.taxAmount,
       grand_total: invoice.amount,
-      amount_paid: invoice.amountPaid,
-      due_date: invoice.dueDate,
-      created_at: invoice.createdAt,
-      updated_at: invoice.updatedAt,
-    }]);
+      amount_paid: invoice.amountPaid, amountPaid: invoice.amountPaid,
+      due_date: invoice.dueDate, dueDate: invoice.dueDate,
+      invoice_date: invoice.invoiceDate, invoiceDate: invoice.invoiceDate,
+      is_paid: invoice.isPaid, isPaid: invoice.isPaid,
+      created_at: invoice.createdAt, createdAt: invoice.createdAt,
+      updated_at: invoice.updatedAt, updatedAt: invoice.updatedAt,
+    });
     console.log(`✅ Invoice ${invoice.invoiceNumber} logged to BigQuery`);
     return true;
   } catch (error) {
@@ -288,17 +309,19 @@ export async function logInvoiceItemsToBigQuery(items: InvoiceItemRecord[]): Pro
       console.warn("⚠️  BigQuery not initialized");
       return false;
     }
-    await bigQuery.dataset(dataset).table("invoice_items").insert(items.map((item) => ({
+    const table = bigQuery.dataset(dataset).table("invoice_items");
+    const [metadata] = await table.getMetadata();
+    const fields = new Map<string, { type?: string }>((metadata.schema?.fields || []).map((field: { name: string; type?: string }) => [field.name, field] as [string, { type?: string }]));
+    const rows = items.map((item) => Object.fromEntries(Object.entries({
       id: item.id,
-      invoice_id: item.invoiceId,
-      item_id: item.itemId,
-      name: item.name,
-      quantity: item.quantity,
-      unit_price: item.unitPrice,
-      discount: item.discount,
-      tax_rate: item.taxRate,
-      line_total: item.lineTotal,
-    })));
+      invoice_id: item.invoiceId, invoiceId: item.invoiceId,
+      item_id: item.itemId, itemId: item.itemId,
+      name: item.name, quantity: item.quantity,
+      unit_price: item.unitPrice, unitPrice: item.unitPrice,
+      discount: item.discount, tax_rate: item.taxRate,
+      line_total: item.lineTotal, lineTotal: item.lineTotal,
+    }).filter(([field]) => fields.has(field)).map(([field, value]) => [field, fields.get(field)?.type === "DATE" && typeof value === "string" ? value.slice(0, 10) : value])));
+    await table.insert(rows);
     return true;
   } catch (error) {
     console.error("❌ Error logging invoice items to BigQuery:", error);
@@ -334,6 +357,10 @@ export async function logPaymentToBigQuery(payment: PaymentRecord): Promise<bool
     setIfPresent("date", payment.date.slice(0, 10));
     setIfPresent("created_at", payment.createdAt);
     setIfPresent("createdAt", payment.createdAt);
+    const missingRequired = (metadata.schema?.fields || [])
+      .filter((field: { name: string; mode?: string }) => field.mode === "REQUIRED" && row[field.name] === undefined)
+      .map((field: { name: string }) => field.name);
+    if (missingRequired.length) throw new Error(`payments is missing required columns: ${missingRequired.join(", ")}`);
     await table.insert([row]);
     console.log(`✅ Payment logged to BigQuery`);
     return true;
