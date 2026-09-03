@@ -47,6 +47,7 @@ jobs:
           VERTEX_AI_ENABLE: ${{ secrets.VERTEX_AI_ENABLE }}
           VERTEX_AI_LOCATION: ${{ secrets.VERTEX_AI_LOCATION }}
           VERTEX_AI_MODEL_ID: ${{ secrets.VERTEX_AI_MODEL_ID }}
+          GEMINI_MODEL_ID: ${{ secrets.GEMINI_MODEL_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
           GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
@@ -55,6 +56,16 @@ jobs:
           META_WHATSAPP_VERIFY_TOKEN: ${{ secrets.META_WHATSAPP_VERIFY_TOKEN }}
           META_WHATSAPP_ACCESS_TOKEN: ${{ secrets.META_WHATSAPP_ACCESS_TOKEN }}
           META_WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.META_WHATSAPP_PHONE_NUMBER_ID }}
+          GSP_API_KEY: ${{ secrets.GSP_API_KEY }}
+          GSP_BASE_URL: ${{ secrets.GSP_BASE_URL }}
+          PAYMENT_GATEWAY_KEY_ID: ${{ secrets.PAYMENT_GATEWAY_KEY_ID }}
+          PAYMENT_GATEWAY_KEY_SECRET: ${{ secrets.PAYMENT_GATEWAY_KEY_SECRET }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
+          MSG91_AUTH_KEY: ${{ secrets.MSG91_AUTH_KEY }}
+          MSG91_SENDER_ID: ${{ secrets.MSG91_SENDER_ID }}
+          MSG91_TEMPLATE_ID: ${{ secrets.MSG91_TEMPLATE_ID }}
         run: |
           set -euo pipefail
           for name in DATABASE_URL JWT_SECRET GCP_SERVICE_ACCOUNT_KEY GOOGLE_CLOUD_PROJECT_ID GCS_BUCKET BIGQUERY_DATASET BIGQUERY_REGION VERCEL_TOKEN VERCEL_ORG_ID VERCEL_BACKEND_PROJECT_ID VERCEL_FRONTEND_PROJECT_ID CORS_ORIGINS VERTEX_AI_ENABLE VERTEX_AI_LOCATION VERTEX_AI_MODEL_ID GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET GMAIL_REFRESH_TOKEN GMAIL_FROM_EMAIL META_WHATSAPP_VERIFY_TOKEN META_WHATSAPP_ACCESS_TOKEN META_WHATSAPP_PHONE_NUMBER_ID; do
@@ -147,6 +158,7 @@ jobs:
           VERTEX_AI_ENABLE: ${{ secrets.VERTEX_AI_ENABLE }}
           VERTEX_AI_LOCATION: ${{ secrets.VERTEX_AI_LOCATION }}
           VERTEX_AI_MODEL_ID: ${{ secrets.VERTEX_AI_MODEL_ID }}
+          GEMINI_MODEL_ID: ${{ secrets.GEMINI_MODEL_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           VERTEX_AI_SUBSCRIPTION_REQUIRED: ${{ secrets.VERTEX_AI_SUBSCRIPTION_REQUIRED }}
           AI_DAILY_FREE_TOKENS: ${{ secrets.AI_DAILY_FREE_TOKENS }}
@@ -162,6 +174,16 @@ jobs:
           META_WHATSAPP_VERIFY_TOKEN: ${{ secrets.META_WHATSAPP_VERIFY_TOKEN }}
           META_WHATSAPP_ACCESS_TOKEN: ${{ secrets.META_WHATSAPP_ACCESS_TOKEN }}
           META_WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.META_WHATSAPP_PHONE_NUMBER_ID }}
+          GSP_API_KEY: ${{ secrets.GSP_API_KEY }}
+          GSP_BASE_URL: ${{ secrets.GSP_BASE_URL }}
+          PAYMENT_GATEWAY_KEY_ID: ${{ secrets.PAYMENT_GATEWAY_KEY_ID }}
+          PAYMENT_GATEWAY_KEY_SECRET: ${{ secrets.PAYMENT_GATEWAY_KEY_SECRET }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
+          MSG91_AUTH_KEY: ${{ secrets.MSG91_AUTH_KEY }}
+          MSG91_SENDER_ID: ${{ secrets.MSG91_SENDER_ID }}
+          MSG91_TEMPLATE_ID: ${{ secrets.MSG91_TEMPLATE_ID }}
           CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
         run: |
           deployment_output_file="$(mktemp)"
@@ -182,6 +204,7 @@ jobs:
             --env "VERTEX_AI_ENABLE=$VERTEX_AI_ENABLE" \
             --env "VERTEX_AI_LOCATION=$VERTEX_AI_LOCATION" \
             --env "VERTEX_AI_MODEL_ID=$VERTEX_AI_MODEL_ID" \
+            --env "GEMINI_MODEL_ID=$GEMINI_MODEL_ID" \
             --env "GEMINI_API_KEY=$GEMINI_API_KEY" \
             --env "VERTEX_AI_SUBSCRIPTION_REQUIRED=$VERTEX_AI_SUBSCRIPTION_REQUIRED" \
             --env "AI_DAILY_FREE_TOKENS=$AI_DAILY_FREE_TOKENS" \
@@ -197,6 +220,16 @@ jobs:
             --env "META_WHATSAPP_VERIFY_TOKEN=$META_WHATSAPP_VERIFY_TOKEN" \
             --env "META_WHATSAPP_ACCESS_TOKEN=$META_WHATSAPP_ACCESS_TOKEN" \
             --env "META_WHATSAPP_PHONE_NUMBER_ID=$META_WHATSAPP_PHONE_NUMBER_ID" \
+            --env "GSP_API_KEY=$GSP_API_KEY" \
+            --env "GSP_BASE_URL=$GSP_BASE_URL" \
+            --env "PAYMENT_GATEWAY_KEY_ID=$PAYMENT_GATEWAY_KEY_ID" \
+            --env "PAYMENT_GATEWAY_KEY_SECRET=$PAYMENT_GATEWAY_KEY_SECRET" \
+            --env "TWILIO_ACCOUNT_SID=$TWILIO_ACCOUNT_SID" \
+            --env "TWILIO_AUTH_TOKEN=$TWILIO_AUTH_TOKEN" \
+            --env "TWILIO_FROM_NUMBER=$TWILIO_FROM_NUMBER" \
+            --env "MSG91_AUTH_KEY=$MSG91_AUTH_KEY" \
+            --env "MSG91_SENDER_ID=$MSG91_SENDER_ID" \
+            --env "MSG91_TEMPLATE_ID=$MSG91_TEMPLATE_ID" \
             --env "CORS_ORIGINS=$CORS_ORIGINS" 2>&1 | tee "$deployment_output_file"
           backend_deployment_url="$( { grep -E '^[[:space:]]*Production[[:space:]]+https://' "$deployment_output_file" || true; } | grep -Eo 'https://[^[:space:]]+\.vercel\.app' | tail -n 1 | sed 's:/$::')"
           if [ -z "$backend_deployment_url" ]; then
@@ -210,10 +243,10 @@ jobs:
         run: |
           set -euo pipefail
           health_url="https://${BACKEND_DEPLOYMENT_URL#https://}/health"
-          response="$(npx vercel@latest curl "$health_url" \
+          response="$(npx vercel@latest curl \
             --token="${{ secrets.VERCEL_TOKEN }}" \
             --scope="${{ secrets.VERCEL_ORG_ID }}" \
-            --project="${{ secrets.VERCEL_BACKEND_PROJECT_ID }}")" || {
+            "$health_url")" || {
             echo "Backend health request failed: $health_url"
             exit 1
           }

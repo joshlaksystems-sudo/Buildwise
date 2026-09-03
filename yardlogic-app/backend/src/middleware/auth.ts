@@ -2,7 +2,9 @@ import { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma";
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === "production"
+  ? (() => { throw new Error("JWT_SECRET must be configured in production"); })()
+  : "dev-secret-change-me");
 
 export interface AuthedRequest extends Request {
   userId?: string;
