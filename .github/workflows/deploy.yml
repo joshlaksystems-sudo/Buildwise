@@ -164,7 +164,7 @@ jobs:
           META_WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.META_WHATSAPP_PHONE_NUMBER_ID }}
           CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
         run: |
-          npx vercel@latest deploy --prod --yes \
+          deployment_json="$(npx vercel@latest deploy --prod --yes --json \
             --token="${{ secrets.VERCEL_TOKEN }}" \
             --scope="${{ secrets.VERCEL_ORG_ID }}" \
             --project="${{ secrets.VERCEL_BACKEND_PROJECT_ID }}" \
@@ -195,12 +195,15 @@ jobs:
             --env "META_WHATSAPP_VERIFY_TOKEN=$META_WHATSAPP_VERIFY_TOKEN" \
             --env "META_WHATSAPP_ACCESS_TOKEN=$META_WHATSAPP_ACCESS_TOKEN" \
             --env "META_WHATSAPP_PHONE_NUMBER_ID=$META_WHATSAPP_PHONE_NUMBER_ID" \
-            --env "CORS_ORIGINS=$CORS_ORIGINS"
+            --env "CORS_ORIGINS=$CORS_ORIGINS")"
+          backend_deployment_url="$(printf '%s' "$deployment_json" | jq -er '.url')"
+          echo "Backend deployment created: $backend_deployment_url"
+          echo "BACKEND_DEPLOYMENT_URL=$backend_deployment_url" >> "$GITHUB_ENV"
 
       - name: Check deployed backend health
         run: |
           set -euo pipefail
-          health_url="https://yardlogic-backend.vercel.app/health"
+          health_url="https://${BACKEND_DEPLOYMENT_URL#https://}/health"
           response="$(curl --fail --location --silent --show-error --max-time 30 "$health_url")" || {
             echo "Backend health request failed: $health_url"
             exit 1
