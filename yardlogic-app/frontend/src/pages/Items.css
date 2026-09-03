@@ -1,0 +1,63 @@
+.inventory-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.inventory-section-heading h2 {
+  margin: 0;
+}
+
+.inventory-count {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.inventory-list {
+  padding: 24px;
+  border: 1px solid var(--rule);
+  background: var(--paper-raised);
+}
+
+.inventory-list table {
+  margin-top: 6px;
+}
+
+.stock-status {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.stock-status.available {
+  color: var(--teal);
+  background: #e8f4ee;
+}
+
+.stock-status.low,
+.stock-status.out {
+  color: var(--red);
+  background: #fff0ed;
+}
+
+.inventory-empty {
+  padding: 28px 12px;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+@media (max-width: 650px) {
+  .inventory-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .inventory-list {
+    padding: 16px;
+    overflow-x: auto;
+  }
+}

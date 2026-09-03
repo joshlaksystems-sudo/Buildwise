@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { cacheInvoicePdf, getCachedInvoicePdf } from "../lib/offlineDb";
+import "./Invoices.css";
 
 interface Line { itemId?: string; name: string; quantity: number; unitPrice: number; taxRate: number; discount: number }
 interface BusinessMetadata { name: string; gstin?: string | null; address?: string | null; ownerPhone?: string | null; stateName?: string | null }
 interface Customer { id: string; name: string; phone?: string | null; gstin?: string | null }
-interface InventoryItem { id: string; name: string; salePrice: number; taxRate: number; currentStock: number; unit: string }
+interface InventoryItem { id: string; name: string; salePrice: number; taxRate: number; currentStock: number; unit: string; sku?: string | null }
 
 export function Invoices() {
   const [invoices, setInvoices] = useState<any[]>([]);
@@ -30,6 +31,10 @@ export function Invoices() {
 
   function refresh() {
     api("/invoices").then(setInvoices).catch(() => {});
+  }
+
+  function refreshInventory() {
+    return api<InventoryItem[]>("/items").then(setInventory);
   }
   useEffect(refresh, []);
   useEffect(() => {
@@ -67,6 +72,7 @@ export function Invoices() {
       setAmountPaid(0); setPaymentMode("CASH"); setDueDate(""); setFollowUpDate(""); setNotes(""); setTerms("");
       setRequestId(null);
       refresh();
+      await refreshInventory();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to create invoice");
     } finally {
@@ -81,6 +87,13 @@ export function Invoices() {
   function selectInventoryItem(index: number, itemId: string) {
     const item = inventory.find((candidate) => candidate.id === itemId);
     updateLine(index, item ? { itemId, name: item.name, unitPrice: item.salePrice, taxRate: item.taxRate } : { itemId: undefined });
+  }
+
+  function typeInventoryItem(index: number, value: string) {
+    const match = inventory.find((item) => item.name.toLowerCase() === value.trim().toLowerCase());
+    updateLine(index, match
+      ? { itemId: match.id, name: match.name, unitPrice: match.salePrice, taxRate: match.taxRate }
+      : { itemId: undefined, name: value });
   }
 
   // A plain <a href> can't carry the Authorization/X-Business-Id
@@ -119,22 +132,36 @@ export function Invoices() {
   }
 
   return (
-    <div>
-      <h1 style={{ fontSize: 28, marginBottom: 24 }}>Invoices</h1>
+    <div className="invoice-page">
+      <div className="invoice-page-heading">
+        <div>
+          <p className="eyebrow">Sales</p>
+          <h1>Invoices</h1>
+        </div>
+        <p className="page-note">Create a bill and stock updates automatically.</p>
+      </div>
 
-      {error && <p style={{ color: "var(--red)", marginBottom: 16 }}>{error}</p>}
+      {error && <p className="invoice-error" role="alert">{error}</p>}
 
-      <section style={{ background: "var(--paper-raised)", border: "1px solid var(--rule)", padding: 20, marginBottom: 32 }}>
-        <h2 style={{ fontSize: 16, marginBottom: 16 }}>New bill</h2>
+      <section className="invoice-composer">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Step 1</p>
+            <h2>New invoice</h2>
+          </div>
+          <span className="status-note">Inventory-aware sale</span>
+        </div>
         {business && (
-          <div style={{ borderBottom: "1px solid var(--rule)", paddingBottom: 16, marginBottom: 16 }}>
+          <div className="business-summary">
             <strong>{business.name}</strong>
-            {business.gstin && <div>GSTIN: {business.gstin}</div>}
-            {business.address && <div>{business.address}</div>}
-            {(business.stateName || business.ownerPhone) && <div>{[business.stateName, business.ownerPhone].filter(Boolean).join(" | ")}</div>}
+            <div className="business-meta">
+              {business.gstin && <span>GSTIN: {business.gstin}</span>}
+              {business.address && <span>{business.address}</span>}
+              {(business.stateName || business.ownerPhone) && <span>{[business.stateName, business.ownerPhone].filter(Boolean).join(" | ")}</span>}
+            </div>
           </div>
         )}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 16 }}>
+        <div className="invoice-form-grid invoice-form-grid-primary">
           <label>Customer (optional)
           <select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
             <option value="">Walk-in / enter below</option>
@@ -152,7 +179,7 @@ export function Invoices() {
           {!customerId && <label>Mobile (optional)<input placeholder="10-digit mobile number" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} /></label>}
           {!customerId && <label>Email (optional)<input type="email" placeholder="customer@example.com" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} /></label>}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 16 }}>
+        <div className="invoice-form-grid">
           <label>Due date (optional)<input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></label>
           <label>Amount paid<input type="number" min="0" max={subTotal + tax} value={amountPaid} onChange={(e) => setAmountPaid(Math.max(0, Number(e.target.value)))} /></label>
           {amountPaid > 0 && <label>Payment mode<select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}><option>CASH</option><option>UPI</option><option>CARD</option><option>BANK_TRANSFER</option><option>CHEQUE</option></select></label>}
@@ -160,23 +187,28 @@ export function Invoices() {
           <label>Notes<input placeholder="Optional note for customer" value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
           <label>Terms<input placeholder="Payment terms or conditions" value={terms} onChange={(e) => setTerms(e.target.value)} /></label>
         </div>
+        <div className="invoice-lines-heading"><h3>Items</h3><span>Choose a saved product to track stock</span></div>
         {lines.map((l, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
-            <label>Inventory item<select value={l.itemId || ""} onChange={(e) => selectInventoryItem(i, e.target.value)}><option value="">Select item or type name</option>{inventory.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.currentStock} {item.unit})</option>)}</select><input placeholder="Other item name" value={l.name} onChange={(e) => updateLine(i, { itemId: undefined, name: e.target.value })} /></label>
+          <div key={i} className="invoice-line">
+            <label className="line-item-field">Product or item name
+              <input list={`inventory-options-${i}`} placeholder="Start typing a product name" value={l.name} onChange={(e) => typeInventoryItem(i, e.target.value)} />
+              <datalist id={`inventory-options-${i}`}>{inventory.map((item) => <option key={item.id} value={item.name}>{item.currentStock} {item.unit} available</option>)}</datalist>
+              <small>{l.itemId ? `${inventory.find((item) => item.id === l.itemId)?.currentStock ?? 0} ${inventory.find((item) => item.id === l.itemId)?.unit ?? "units"} currently in stock` : "Saved products will fill price and GST automatically."}</small>
+            </label>
             <label>Quantity<input type="number" min="0.01" placeholder="0" value={l.quantity} onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })} /></label>
             <label>Unit price<input type="number" min="0" placeholder="0.00" value={l.unitPrice} onChange={(e) => updateLine(i, { unitPrice: Number(e.target.value) })} /></label>
             <label>GST %<input type="number" min="0" max="100" placeholder="18" value={l.taxRate} onChange={(e) => updateLine(i, { taxRate: Number(e.target.value) })} /></label>
             <label>Discount<input type="number" min="0" placeholder="0.00" value={l.discount} onChange={(e) => updateLine(i, { discount: Number(e.target.value) })} /></label>
           </div>
         ))}
-        <button className="secondary" onClick={() => setLines([...lines, { name: "", quantity: 1, unitPrice: 0, taxRate: 18, discount: 0 }])}>
+        <button type="button" className="secondary" onClick={() => setLines([...lines, { name: "", quantity: 1, unitPrice: 0, taxRate: 18, discount: 0 }])}>
           + Add line
         </button>
 
-        <div style={{ marginTop: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div className="numeral" style={{ fontSize: 18 }}>
+        <div className="invoice-footer">
+          <div className="invoice-total numeral">
             <div>Total: Rs. {(subTotal + tax).toFixed(2)}</div>
-            <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>GST: Rs. {tax.toFixed(2)} | Paid: Rs. {amountPaid.toFixed(2)} | Balance: Rs. {Math.max(0, subTotal + tax - amountPaid).toFixed(2)}</div>
+            <div className="invoice-total-detail">GST: Rs. {tax.toFixed(2)} | Paid: Rs. {amountPaid.toFixed(2)} | Balance: Rs. {Math.max(0, subTotal + tax - amountPaid).toFixed(2)}</div>
           </div>
           <button className="gold" onClick={submit} disabled={creating || !lines[0].name || amountPaid > subTotal + tax || (amountPaid < subTotal + tax && !followUpDate)}>
             {creating ? "Creating..." : amountPaid < subTotal + tax ? "Create credit invoice" : "Create paid invoice"}
@@ -184,6 +216,8 @@ export function Invoices() {
         </div>
       </section>
 
+      <section className="invoice-history">
+      <div className="section-heading"><div><p className="eyebrow">Recent activity</p><h2>Invoices</h2></div><span className="status-note">{invoices.length} total</span></div>
       <table>
         <thead>
           <tr><th>Number</th><th>Customer</th><th>Total</th><th>Status</th><th>Date</th><th></th></tr>
@@ -204,6 +238,7 @@ export function Invoices() {
           ))}
         </tbody>
       </table>
+      </section>
     </div>
   );
 }

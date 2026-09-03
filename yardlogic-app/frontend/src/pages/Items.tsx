@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { readLocal, saveLocalFirst } from "../lib/syncManager";
+import "./Items.css";
 
 export function Items() {
   const [items, setItems] = useState<any[]>([]);
@@ -43,6 +44,8 @@ export function Items() {
     refresh();
   }
 
+  const lowStockCount = items.filter((item) => item.currentStock <= item.lowStockAlert && item.lowStockAlert > 0).length;
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 24 }}>
@@ -54,8 +57,11 @@ export function Items() {
         )}
       </div>
 
-      <section style={{ background: "var(--paper-raised)", border: "1px solid var(--rule)", padding: 20, marginBottom: 32 }}>
-        <h2 style={{ fontSize: 16, marginBottom: 16 }}>Add item</h2>
+      <section className="inventory-composer" style={{ background: "var(--paper-raised)", border: "1px solid var(--rule)", padding: 20, marginBottom: 32 }}>
+        <div className="inventory-section-heading">
+          <div><p className="eyebrow">Product catalogue</p><h2 style={{ fontSize: 18 }}>Add item</h2></div>
+          <span className="inventory-count">{items.length} products{lowStockCount > 0 ? ` · ${lowStockCount} need restocking` : ""}</span>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
           <label>Item name<input placeholder="e.g. OPC Cement 50kg" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
           <label>Barcode<input placeholder="Optional barcode" value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} /></label>
@@ -67,23 +73,33 @@ export function Items() {
         <button className="gold" onClick={add} disabled={!form.name}>Add to inventory</button>
       </section>
 
+      <section className="inventory-list">
+      <div className="inventory-section-heading">
+        <div><p className="eyebrow">Live quantities</p><h2 style={{ fontSize: 18 }}>Inventory</h2></div>
+        <span className="inventory-count">Updated from your account</span>
+      </div>
       <table>
         <thead>
-          <tr><th>Item</th><th>Stock</th><th>Sale price</th><th>GST</th></tr>
+          <tr><th>Item</th><th>Current stock</th><th>Status</th><th>Sale price</th><th>GST</th></tr>
         </thead>
         <tbody>
+          {items.length === 0 && <tr><td colSpan={5} className="inventory-empty">No products saved yet. Add your first product above.</td></tr>}
           {items.map((i) => (
             <tr key={i.id}>
               <td>{i.name}</td>
               <td className="numeral" style={{ color: i.lowStockAlert > 0 && i.currentStock <= i.lowStockAlert ? "var(--red)" : "inherit" }}>
                 {i.currentStock} {i.unit}
               </td>
+              <td><span className={`stock-status ${i.currentStock <= 0 ? "out" : i.lowStockAlert > 0 && i.currentStock <= i.lowStockAlert ? "low" : "available"}`}>
+                {i.currentStock <= 0 ? "Out of stock" : i.lowStockAlert > 0 && i.currentStock <= i.lowStockAlert ? "Low stock" : "In stock"}
+              </span></td>
               <td className="numeral">₹{i.salePrice}</td>
               <td>{i.taxRate}%</td>
             </tr>
           ))}
         </tbody>
       </table>
+      </section>
     </div>
   );
 }
