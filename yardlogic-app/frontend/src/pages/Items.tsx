@@ -5,8 +5,9 @@ import "./Items.css";
 
 export function Items() {
   const [items, setItems] = useState<any[]>([]);
+  const [notice, setNotice] = useState("");
   const [offline, setOffline] = useState(!navigator.onLine);
-  const [form, setForm] = useState({ name: "", salePrice: 0, purchasePrice: 0, taxRate: 18, openingStock: 0, lowStockAlert: 5, barcode: "" });
+  const [form, setForm] = useState({ name: "", unit: "PCS", salePrice: 0, purchasePrice: 0, taxRate: 18, openingStock: 0, lowStockAlert: 5, barcode: "" });
 
   // Reads from the local cache first (instant, works offline), then
   // reconciles with the server in the background when online.
@@ -38,6 +39,7 @@ export function Items() {
   async function add() {
     const itemPayload = {
       name: form.name.trim(),
+      unit: form.unit,
       salePrice: form.salePrice,
       purchasePrice: form.purchasePrice,
       taxRate: form.taxRate,
@@ -48,19 +50,20 @@ export function Items() {
 
     try {
       if (navigator.onLine) {
-        await api("/items", { method: "POST", body: JSON.stringify(itemPayload) });
+        const result = await api<{ merged?: boolean }>("/items", { method: "POST", body: JSON.stringify(itemPayload) });
+        setNotice(result.merged ? "Existing product found. Stock was added to that product instead of creating a duplicate." : "Product added to inventory.");
       } else {
         await saveLocalFirst("item", {
           ...itemPayload,
           currentStock: form.openingStock,
         });
       }
-      setForm({ name: "", salePrice: 0, purchasePrice: 0, taxRate: 18, openingStock: 0, lowStockAlert: 5, barcode: "" });
+      setForm({ name: "", unit: "PCS", salePrice: 0, purchasePrice: 0, taxRate: 18, openingStock: 0, lowStockAlert: 5, barcode: "" });
       await refresh();
     } catch (error) {
       if (!navigator.onLine) {
         await saveLocalFirst("item", { ...itemPayload, currentStock: form.openingStock });
-        setForm({ name: "", salePrice: 0, purchasePrice: 0, taxRate: 18, openingStock: 0, lowStockAlert: 5, barcode: "" });
+        setForm({ name: "", unit: "PCS", salePrice: 0, purchasePrice: 0, taxRate: 18, openingStock: 0, lowStockAlert: 5, barcode: "" });
         await refresh();
         return;
       }
@@ -88,6 +91,7 @@ export function Items() {
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
           <label>Item name<input placeholder="e.g. OPC Cement 50kg" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+          <label>Unit<select value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}><option>PCS</option><option>Bag</option><option>Kg</option><option>Gram</option><option>Ton</option><option>Liter</option><option>Meter</option><option>Box</option></select></label>
           <label>Barcode<input placeholder="Optional barcode" value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} /></label>
           <label>Sale price<input type="number" min="0" placeholder="0.00" value={form.salePrice} onChange={(e) => setForm({ ...form, salePrice: Number(e.target.value) })} /></label>
           <label>Purchase price<input type="number" min="0" placeholder="0.00" value={form.purchasePrice} onChange={(e) => setForm({ ...form, purchasePrice: Number(e.target.value) })} /></label>
@@ -96,6 +100,8 @@ export function Items() {
         </div>
         <button className="gold" onClick={add} disabled={!form.name}>Add to inventory</button>
       </section>
+
+      {notice && <p role="status" style={{ color: "var(--gold)", marginBottom: 16 }}>{notice}</p>}
 
       <section className="inventory-list">
       <div className="inventory-section-heading">

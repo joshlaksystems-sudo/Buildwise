@@ -60,6 +60,21 @@ itemsRouter.post("/", async (req: AuthedRequest, res) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { openingStock, ...data } = parsed.data;
 
+  const existing = await prisma.item.findFirst({
+    where: { businessId: req.businessId, name: { equals: data.name, mode: "insensitive" } },
+  });
+  if (existing) {
+    const item = await prisma.item.update({
+      where: { id: existing.id },
+      data: {
+        ...data,
+        currentStock: { increment: openingStock },
+        stockMoves: openingStock ? { create: { businessId: req.businessId!, change: openingStock, reason: "OPENING", note: "Added to existing product" } } : undefined,
+      } as any,
+    });
+    return res.status(200).json({ ...item, merged: true });
+  }
+
   const item = await prisma.item.create({
     data: {
       ...data,
@@ -81,6 +96,20 @@ itemsRouter.post("/", async (req: AuthedRequest, res) => {
   });
 
   res.status(201).json(item);
+});
+
+itemsRouter.patch("/:id", async (req: AuthedRequest, res) => {
+  const parsed = itemSchema.partial().safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const item = await prisma.item.updateMany({ where: { id: req.params.id, businessId: req.businessId }, data: parsed.data as any });
+  if (!item.count) return res.status(404).json({ error: "Item not found" });
+  res.json(await prisma.item.findUnique({ where: { id: req.params.id } }));
+});
+
+itemsRouter.delete("/:id", async (req: AuthedRequest, res) => {
+  const deleted = await prisma.item.deleteMany({ where: { id: req.params.id, businessId: req.businessId } });
+  if (!deleted.count) return res.status(404).json({ error: "Item not found" });
+  res.status(204).send();
 });
 
 itemsRouter.patch("/:id/adjust-stock", async (req: AuthedRequest, res) => {

@@ -28,6 +28,7 @@ export function Expenses() {
   const [lastResult, setLastResult] = useState<CategorizeResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
+  const [period, setPeriod] = useState("current");
   const [manual, setManual] = useState({ category: "Rent", amount: "", taxAmount: "", note: "" });
   const expenseCategories = ["Salaries", "Rent", "Electricity", "Water", "Internet", "Telephone", "Transport", "Fuel", "Office supplies", "Repairs", "Maintenance", "Bank charges", "Loan interest", "Advertising", "Insurance", "Taxes", "Software subscriptions", "Miscellaneous"];
 
@@ -104,8 +105,14 @@ export function Expenses() {
     }
   }
 
-  const filteredExpenses =
-    filter === "all" ? expenses : expenses.filter((e) => e.category === filter);
+  const now = new Date();
+  const periodExpenses = expenses.filter((expense) => {
+    if (period === "all") return true;
+    const date = new Date(expense.createdAt);
+    if (period === "current") return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}` === period;
+  });
+  const filteredExpenses = filter === "all" ? periodExpenses : periodExpenses.filter((e) => e.category === filter);
 
   const categories = [...new Set(expenses.map((e) => e.category))].sort();
   const totalAmount = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
@@ -219,6 +226,7 @@ export function Expenses() {
         </div>
 
         <div className="filters">
+          <label>Period<select value={period} onChange={(event) => setPeriod(event.target.value)}><option value="current">Current month</option><option value="all">All months</option>{[...new Set(expenses.map((expense) => expense.createdAt.slice(0, 7)))].sort().reverse().map((month) => <option key={month} value={month}>{month}</option>)}</select></label>
           <button
             className={`filter-btn ${filter === "all" ? "active" : ""}`}
             onClick={() => setFilter("all")}

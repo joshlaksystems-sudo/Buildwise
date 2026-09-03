@@ -29,6 +29,9 @@ export function Invoices() {
   const [error, setError] = useState("");
   const [requestId, setRequestId] = useState<string | null>(null);
   const [activeProductLine, setActiveProductLine] = useState<number | null>(null);
+  const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
+  const [historyFilter, setHistoryFilter] = useState("ALL");
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   function refresh() {
     api("/invoices").then(setInvoices).catch(() => {});
@@ -68,13 +71,15 @@ export function Invoices() {
     setCreating(true);
     setError("");
     try {
+      const payload = { customerId: customerId || undefined, customerName: customerName || undefined, customerPhone: customerPhone || undefined, customerEmail: customerEmail || undefined, type: invoiceType, lines, amountPaid, paymentMode: amountPaid > 0 ? paymentMode : undefined, dueDate: dueDate ? new Date(`${dueDate}T00:00:00.000Z`).toISOString() : undefined, followUpDate: followUpDate ? new Date(`${followUpDate}T00:00:00.000Z`).toISOString() : undefined, notes: notes || undefined, terms: terms || undefined };
       const idempotencyKey = requestId || crypto.randomUUID();
-      if (!requestId) setRequestId(idempotencyKey);
-      await api("/invoices", { method: "POST", headers: { "X-Idempotency-Key": idempotencyKey }, body: JSON.stringify({ customerId: customerId || undefined, customerName: customerName || undefined, customerPhone: customerPhone || undefined, customerEmail: customerEmail || undefined, type: invoiceType, lines, amountPaid, paymentMode: amountPaid > 0 ? paymentMode : undefined, dueDate: dueDate ? new Date(`${dueDate}T00:00:00.000Z`).toISOString() : undefined, followUpDate: followUpDate ? new Date(`${followUpDate}T00:00:00.000Z`).toISOString() : undefined, notes: notes || undefined, terms: terms || undefined }) });
+      if (!editingId && !requestId) setRequestId(idempotencyKey);
+      await api(editingId ? `/invoices/${editingId}` : "/invoices", { method: editingId ? "PATCH" : "POST", ...(editingId ? {} : { headers: { "X-Idempotency-Key": idempotencyKey } }), body: JSON.stringify(payload) });
       setLines([{ name: "", quantity: 1, unitPrice: 0, taxRate: 18, discount: 0 }]);
       setCustomerId(""); setCustomerName(""); setCustomerPhone(""); setCustomerEmail("");
       setAmountPaid(0); setPaymentMode("CASH"); setDueDate(""); setFollowUpDate(""); setNotes(""); setTerms("");
       setRequestId(null);
+      setEditingId(null);
       setActiveProductLine(null);
       refresh();
       await refreshInventory();
@@ -109,7 +114,7 @@ export function Invoices() {
   // A plain <a href> can't carry the Authorization/X-Business-Id
   // headers the PDF route requires, so we fetch it as a blob and
   // open that instead.
-  async function downloadPdf(id: string, number: string) {
+  async function downloadPdf(id: string, number: string, mode: "download" | "view" = "download") {
     let blob: Blob | null = null;
     if (navigator.onLine) {
       const token = localStorage.getItem("token");
@@ -131,9 +136,59 @@ export function Invoices() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${number}.pdf`;
-    a.click();
+    if (mode === "view") {
+      window.open(url, "_blank", "noopener,noreferrer");
+    } else {
+      a.download = `${number}.pdf`;
+      a.click();
+    }
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function viewPdf(id: string, number: string) {
+    await downloadPdf(id, number, "view");
+  }
+
+  function editInvoice(invoice: any) {
+    setEditingId(invoice.id);
+    setCustomerId(invoice.customerId || "");
+    setCustomerName(invoice.customerName || "");
+    setCustomerPhone(invoice.customerPhone || "");
+    setCustomerEmail(invoice.customerEmail || "");
+    setInvoiceType(invoice.type);
+    setAmountPaid(invoice.amountPaid || 0);
+    setPaymentMode(invoice.paymentMode || "CASH");
+    setDueDate(invoice.dueDate ? invoice.dueDate.slice(0, 10) : "");
+    setFollowUpDate(invoice.followUpDate ? invoice.followUpDate.slice(0, 10) : "");
+    setNotes(invoice.notes || "");
+    setTerms(invoice.terms || "");
+    setLines(invoice.items.map((item: any) => ({ itemId: item.itemId || undefined, name: item.name, quantity: item.quantity, unitPrice: item.unitPrice, taxRate: item.taxRate, discount: item.discount })));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function deleteInvoice(id: string) {
+    if (!window.confirm("Cancel this invoice? It will remain in your records as cancelled.")) return;
+    await api(`/invoices/${id}`, { method: "DELETE" });
+    setSelectedInvoices((current) => current.filter((invoiceId) => invoiceId !== id));
+    refresh();
+  }
+
+  async function bulkDownload() {
+    for (const id of selectedInvoices) {
+      const invoice = invoices.find((candidate) => candidate.id === id);
+      if (invoice) await downloadPdf(invoice.id, invoice.number);
+    }
+  }
+
+  async function bulkDelete() {
+    if (!selectedInvoices.length || !window.confirm(`Cancel ${selectedInvoices.length} selected invoices?`)) return;
+    await Promise.all(selectedInvoices.map((id) => api(`/invoices/${id}`, { method: "DELETE" })));
+    setSelectedInvoices([]);
+    refresh();
+  }
+
+  async function bulkShare() {
+    for (const id of selectedInvoices) await shareOnWhatsApp(id);
   }
 
   async function shareOnWhatsApp(id: string) {
@@ -157,7 +212,7 @@ export function Invoices() {
         <div className="section-heading">
           <div>
             <p className="eyebrow">Step 1</p>
-            <h2>New invoice</h2>
+            <h2>{editingId ? "Edit invoice" : "New invoice"}</h2>
           </div>
           <span className="status-note">Inventory-aware sale</span>
         </div>
@@ -223,28 +278,39 @@ export function Invoices() {
             <div className="invoice-total-detail">GST: Rs. {tax.toFixed(2)} | Paid: Rs. {amountPaid.toFixed(2)} | Balance: Rs. {Math.max(0, subTotal + tax - amountPaid).toFixed(2)}</div>
           </div>
           <button className="gold" onClick={submit} disabled={creating || !lines[0].name || amountPaid > subTotal + tax || (amountPaid < subTotal + tax && !followUpDate)}>
-            {creating ? "Creating..." : amountPaid < subTotal + tax ? "Create credit invoice" : "Create paid invoice"}
+            {creating ? "Saving..." : editingId ? "Save invoice changes" : amountPaid < subTotal + tax ? "Create credit invoice" : "Create paid invoice"}
           </button>
+          {editingId && <button className="secondary" onClick={() => setEditingId(null)}>Cancel edit</button>}
         </div>
       </section>
 
       <section className="invoice-history">
       <div className="section-heading"><div><p className="eyebrow">Recent activity</p><h2>Invoices</h2></div><span className="status-note">{invoices.length} total</span></div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+        <label>Filter<select value={historyFilter} onChange={(event) => setHistoryFilter(event.target.value)}><option value="ALL">All invoices</option><option value="PAID">Paid</option><option value="PARTIAL">Partial</option><option value="UNPAID">Unpaid</option><option value="CANCELLED">Cancelled</option></select></label>
+        <button className="secondary" disabled={!selectedInvoices.length} onClick={() => void bulkDownload()}>Download selected</button>
+        <button className="secondary" disabled={!selectedInvoices.length} onClick={() => void bulkShare()}>Share selected</button>
+        <button className="secondary" disabled={!selectedInvoices.length} onClick={() => void bulkDelete()}>Cancel selected</button>
+      </div>
       <table>
         <thead>
-          <tr><th>Number</th><th>Customer</th><th>Total</th><th>Status</th><th>Date</th><th></th></tr>
+          <tr><th><input type="checkbox" aria-label="Select all invoices" checked={invoices.filter((invoice) => historyFilter === "ALL" || invoice.status === historyFilter).length > 0 && selectedInvoices.length === invoices.filter((invoice) => historyFilter === "ALL" || invoice.status === historyFilter).length} onChange={(event) => setSelectedInvoices(event.target.checked ? invoices.filter((invoice) => historyFilter === "ALL" || invoice.status === historyFilter).map((invoice) => invoice.id) : [])} /></th><th>Number</th><th>Customer</th><th>Total</th><th>Status</th><th>Date</th><th></th></tr>
         </thead>
         <tbody>
-          {invoices.map((inv) => (
+          {invoices.filter((invoice) => historyFilter === "ALL" || invoice.status === historyFilter).map((inv) => (
             <tr key={inv.id}>
+              <td><input type="checkbox" aria-label={`Select ${inv.number}`} checked={selectedInvoices.includes(inv.id)} onChange={(event) => setSelectedInvoices((current) => event.target.checked ? [...current, inv.id] : current.filter((id) => id !== inv.id))} /></td>
               <td>{inv.number}</td>
               <td>{inv.customer?.name ?? "Walk-in"}</td>
               <td className="numeral">₹{inv.grandTotal.toLocaleString("en-IN")}</td>
               <td>{inv.status}</td>
               <td>{new Date(inv.createdAt).toLocaleDateString("en-IN")}</td>
               <td style={{ display: "flex", gap: 6 }}>
+                <button className="secondary" onClick={() => void viewPdf(inv.id, inv.number)}>View</button>
                 <button className="secondary" onClick={() => downloadPdf(inv.id, inv.number)}>PDF</button>
                 <button className="secondary" onClick={() => shareOnWhatsApp(inv.id)}>WhatsApp</button>
+                <button className="secondary" onClick={() => void editInvoice(inv)}>Edit</button>
+                <button className="secondary" onClick={() => void deleteInvoice(inv.id)}>Cancel</button>
               </td>
             </tr>
           ))}

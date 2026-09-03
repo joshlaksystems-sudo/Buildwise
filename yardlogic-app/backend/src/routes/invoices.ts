@@ -263,6 +263,59 @@ invoicesRouter.get("/:id", async (req: AuthedRequest, res) => {
   res.json(invoice);
 });
 
+invoicesRouter.patch("/:id", async (req: AuthedRequest, res) => {
+  const parsed = invoiceSchema.partial().safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const data = parsed.data;
+  const updated = await prisma.$transaction(async (tx) => {
+    const existing = await tx.invoice.findFirst({ where: { id: req.params.id, businessId: req.businessId, status: { not: "CANCELLED" } }, include: { items: true } });
+    if (!existing) return null;
+    const nextLines = data.lines || existing.items.map((item) => ({ itemId: item.itemId || undefined, name: item.name, quantity: item.quantity, unitPrice: item.unitPrice, discount: item.discount, taxRate: item.taxRate }));
+    const computed = nextLines.map((line) => ({ ...line, lineTotal: computeLine(line).lineTotal }));
+    const subTotal = nextLines.reduce((sum, line) => sum + computeLine(line).base, 0);
+    const taxTotal = nextLines.reduce((sum, line) => sum + computeLine(line).tax, 0);
+    const grandTotal = subTotal + taxTotal;
+    const amountPaid = data.amountPaid ?? existing.amountPaid;
+    if (amountPaid > grandTotal) throw new Error("Amount paid cannot be greater than the invoice total");
+    const followUpDate = data.followUpDate !== undefined ? (data.followUpDate ? new Date(data.followUpDate) : null) : existing.followUpDate;
+    if (amountPaid < grandTotal && !followUpDate) throw new Error("Add a follow-up date when the invoice has an outstanding balance");
+    if (amountPaid >= grandTotal && followUpDate) throw new Error("A fully paid invoice cannot have a follow-up date");
+    const itemIds = nextLines.flatMap((line) => line.itemId ? [line.itemId] : []);
+    const ownedItems = await tx.item.findMany({ where: { id: { in: itemIds }, businessId: req.businessId }, select: { id: true } });
+    if (ownedItems.length !== new Set(itemIds).size) throw new Error("One or more items do not belong to this business");
+
+    for (const oldLine of existing.items) {
+      if (oldLine.itemId) {
+        await tx.item.update({ where: { id: oldLine.itemId }, data: { currentStock: { increment: oldLine.quantity } } });
+      }
+    }
+    for (const line of nextLines) {
+      if (line.itemId) {
+        const stock = await tx.item.updateMany({ where: { id: line.itemId, businessId: req.businessId, currentStock: { gte: line.quantity } }, data: { currentStock: { decrement: line.quantity } } });
+        if (stock.count !== 1) throw new Error("Insufficient stock for the edited invoice");
+      }
+    }
+    await tx.invoiceItem.deleteMany({ where: { invoiceId: existing.id } });
+    return tx.invoice.update({
+      where: { id: existing.id },
+      data: {
+        customerName: data.customerName, customerPhone: data.customerPhone, customerEmail: data.customerEmail,
+        type: data.type, subTotal, taxTotal, grandTotal, amountPaid, status: amountPaid >= grandTotal ? "PAID" : amountPaid > 0 ? "PARTIAL" : "UNPAID",
+        paymentMode: data.paymentMode, dueDate: data.dueDate ? new Date(data.dueDate) : undefined, followUpDate,
+        notes: data.notes, terms: data.terms, items: { create: computed },
+      }, include: { customer: true, items: true, payments: true },
+    });
+  });
+  if (!updated) return res.status(404).json({ error: "Invoice not found or cancelled" });
+  res.json(updated);
+});
+
+invoicesRouter.delete("/:id", async (req: AuthedRequest, res) => {
+  const cancelled = await prisma.invoice.updateMany({ where: { id: req.params.id, businessId: req.businessId, status: { not: "CANCELLED" } }, data: { status: "CANCELLED" } });
+  if (!cancelled.count) return res.status(404).json({ error: "Invoice not found or already cancelled" });
+  res.status(204).send();
+});
+
 // Renders and streams a PDF of the invoice — no intermediate file,
 // piped straight to the response.
 invoicesRouter.get("/:id/pdf", async (req: AuthedRequest, res) => {
