@@ -43,7 +43,6 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_BACKEND_PROJECT_ID: ${{ secrets.VERCEL_BACKEND_PROJECT_ID }}
           VERCEL_FRONTEND_PROJECT_ID: ${{ secrets.VERCEL_FRONTEND_PROJECT_ID }}
-          VITE_API_URL: ${{ secrets.VITE_API_URL }}
           CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
           VERTEX_AI_ENABLE: ${{ secrets.VERTEX_AI_ENABLE }}
           VERTEX_AI_LOCATION: ${{ secrets.VERTEX_AI_LOCATION }}
@@ -54,19 +53,12 @@ jobs:
           GMAIL_FROM_EMAIL: ${{ secrets.GMAIL_FROM_EMAIL }}
         run: |
           set -euo pipefail
-          for name in DATABASE_URL JWT_SECRET GCP_SERVICE_ACCOUNT_KEY GOOGLE_CLOUD_PROJECT_ID GCS_BUCKET BIGQUERY_DATASET BIGQUERY_REGION VERCEL_TOKEN VERCEL_ORG_ID VERCEL_BACKEND_PROJECT_ID VERCEL_FRONTEND_PROJECT_ID VITE_API_URL CORS_ORIGINS VERTEX_AI_ENABLE VERTEX_AI_LOCATION VERTEX_AI_MODEL_ID GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET GMAIL_REFRESH_TOKEN GMAIL_FROM_EMAIL; do
+          for name in DATABASE_URL JWT_SECRET GCP_SERVICE_ACCOUNT_KEY GOOGLE_CLOUD_PROJECT_ID GCS_BUCKET BIGQUERY_DATASET BIGQUERY_REGION VERCEL_TOKEN VERCEL_ORG_ID VERCEL_BACKEND_PROJECT_ID VERCEL_FRONTEND_PROJECT_ID CORS_ORIGINS VERTEX_AI_ENABLE VERTEX_AI_LOCATION VERTEX_AI_MODEL_ID GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET GMAIL_REFRESH_TOKEN GMAIL_FROM_EMAIL; do
             if [ -z "${!name:-}" ]; then
               echo "Missing required GitHub secret: $name"
               exit 1
             fi
           done
-          case "$VITE_API_URL" in
-            https://*.vercel.app|https://*.vercel.app/) ;;
-            *) echo "VITE_API_URL must be the deployed HTTPS backend URL, not localhost or a placeholder"; exit 1 ;;
-          esac
-          case "$VITE_API_URL" in
-            *your-backend-domain*|*real-backend-url*|*example.com*) echo "VITE_API_URL is still a placeholder: $VITE_API_URL"; exit 1 ;;
-          esac
           echo "Required deployment secrets are present."
 
       - name: Install dependencies
@@ -187,11 +179,9 @@ jobs:
             --env "CORS_ORIGINS=$CORS_ORIGINS"
 
       - name: Check deployed backend health
-        env:
-          VITE_API_URL: ${{ secrets.VITE_API_URL }}
         run: |
           set -euo pipefail
-          health_url="${VITE_API_URL%/}/health"
+          health_url="https://yardlogic-backend.vercel.app/health"
           response="$(curl --fail --silent --show-error --max-time 30 "$health_url")" || {
             echo "Backend health request failed: $health_url"
             exit 1
@@ -223,7 +213,7 @@ jobs:
 
       - name: Type-check & build
         env:
-          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          VITE_API_URL: https://yardlogic-backend.vercel.app
           VITE_COMPANY_NAME: ${{ secrets.VITE_COMPANY_NAME }}
           VITE_PRODUCT_NAME: ${{ secrets.VITE_PRODUCT_NAME }}
           VITE_GCS_BUCKET: ${{ secrets.VITE_GCS_BUCKET }}
@@ -239,7 +229,7 @@ jobs:
             --token="${{ secrets.VERCEL_TOKEN }}" \
             --scope="${{ secrets.VERCEL_ORG_ID }}" \
             --project="${{ secrets.VERCEL_FRONTEND_PROJECT_ID }}" \
-            --build-env "VITE_API_URL=${{ secrets.VITE_API_URL }}" \
+            --build-env "VITE_API_URL=https://yardlogic-backend.vercel.app" \
             --build-env "VITE_COMPANY_NAME=${{ secrets.VITE_COMPANY_NAME }}" \
             --build-env "VITE_PRODUCT_NAME=${{ secrets.VITE_PRODUCT_NAME }}" \
             --build-env "VITE_GCS_BUCKET=${{ secrets.VITE_GCS_BUCKET }}" \
