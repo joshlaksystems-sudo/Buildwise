@@ -210,7 +210,10 @@ jobs:
         run: |
           set -euo pipefail
           health_url="https://${BACKEND_DEPLOYMENT_URL#https://}/health"
-          response="$(curl --fail --location --silent --show-error --max-time 30 "$health_url")" || {
+          response="$(npx vercel@latest curl "$health_url" \
+            --token="${{ secrets.VERCEL_TOKEN }}" \
+            --scope="${{ secrets.VERCEL_ORG_ID }}" \
+            --project="${{ secrets.VERCEL_BACKEND_PROJECT_ID }}")" || {
             echo "Backend health request failed: $health_url"
             exit 1
           }
