@@ -149,8 +149,7 @@ jobs:
           GMAIL_FROM_EMAIL: ${{ secrets.GMAIL_FROM_EMAIL }}
           CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
         run: |
-          set -euo pipefail
-          deployment_output="$(npx vercel@latest deploy --prod --yes \
+          npx vercel@latest deploy --prod --yes \
             --token="${{ secrets.VERCEL_TOKEN }}" \
             --scope="${{ secrets.VERCEL_ORG_ID }}" \
             --project="${{ secrets.VERCEL_BACKEND_PROJECT_ID }}" \
@@ -177,19 +176,12 @@ jobs:
             --env "GMAIL_CLIENT_SECRET=$GMAIL_CLIENT_SECRET" \
             --env "GMAIL_REFRESH_TOKEN=$GMAIL_REFRESH_TOKEN" \
             --env "GMAIL_FROM_EMAIL=$GMAIL_FROM_EMAIL" \
-            --env "CORS_ORIGINS=$CORS_ORIGINS" 2>&1 | tee /dev/stderr)"
-          deployment_url="$(printf '%s\n' "$deployment_output" | sed -n 's/.*Production[[:space:]]*\(https:\/\/[^[:space:]]*\).*/\1/p' | tail -n 1)"
-          if [ -z "$deployment_url" ]; then
-            echo "Could not determine the backend deployment URL from Vercel output."
-            exit 1
-          fi
-          echo "Backend deployment URL: $deployment_url"
-          echo "BACKEND_DEPLOYMENT_URL=$deployment_url" >> "$GITHUB_ENV"
+            --env "CORS_ORIGINS=$CORS_ORIGINS"
 
       - name: Check deployed backend health
         run: |
           set -euo pipefail
-          health_url="${BACKEND_DEPLOYMENT_URL%/}/health"
+          health_url="https://yardlogic-backend.vercel.app/health"
           response="$(curl --fail --location --silent --show-error --max-time 30 "$health_url")" || {
             echo "Backend health request failed: $health_url"
             exit 1
