@@ -36,12 +36,36 @@ export function Items() {
   }, []);
 
   async function add() {
-    // Writes locally immediately and either syncs now or queues for
-    // later — the item shows up in the list either way, instantly.
-    const currentStock = form.openingStock;
-    await saveLocalFirst("item", { ...form, currentStock });
-    setForm({ name: "", salePrice: 0, purchasePrice: 0, taxRate: 18, openingStock: 0, lowStockAlert: 5, barcode: "" });
-    refresh();
+    const itemPayload = {
+      name: form.name.trim(),
+      salePrice: form.salePrice,
+      purchasePrice: form.purchasePrice,
+      taxRate: form.taxRate,
+      openingStock: form.openingStock,
+      lowStockAlert: form.lowStockAlert,
+      barcode: form.barcode.trim() || undefined,
+    };
+
+    try {
+      if (navigator.onLine) {
+        await api("/items", { method: "POST", body: JSON.stringify(itemPayload) });
+      } else {
+        await saveLocalFirst("item", {
+          ...itemPayload,
+          currentStock: form.openingStock,
+        });
+      }
+      setForm({ name: "", salePrice: 0, purchasePrice: 0, taxRate: 18, openingStock: 0, lowStockAlert: 5, barcode: "" });
+      await refresh();
+    } catch (error) {
+      if (!navigator.onLine) {
+        await saveLocalFirst("item", { ...itemPayload, currentStock: form.openingStock });
+        setForm({ name: "", salePrice: 0, purchasePrice: 0, taxRate: 18, openingStock: 0, lowStockAlert: 5, barcode: "" });
+        await refresh();
+        return;
+      }
+      console.error("Error adding inventory item:", error);
+    }
   }
 
   const lowStockCount = items.filter((item) => item.currentStock <= item.lowStockAlert && item.lowStockAlert > 0).length;
