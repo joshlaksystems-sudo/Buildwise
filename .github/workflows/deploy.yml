@@ -99,6 +99,7 @@ jobs:
           echo "$GOOGLE_APPLICATION_CREDENTIALS_JSON" > /tmp/gcp-key.json
           trap 'rm -f /tmp/gcp-key.json /tmp/bigquery-schema.sql' EXIT
           gcloud auth activate-service-account --key-file=/tmp/gcp-key.json
+          gcloud services enable aiplatform.googleapis.com bigquery.googleapis.com storage.googleapis.com --project="$GOOGLE_CLOUD_PROJECT_ID"
 
           if ! bq show --dataset "${GOOGLE_CLOUD_PROJECT_ID}:${BIGQUERY_DATASET}" > /dev/null 2>&1; then
             bq mk --dataset --location="$BIGQUERY_REGION" "${GOOGLE_CLOUD_PROJECT_ID}:${BIGQUERY_DATASET}"

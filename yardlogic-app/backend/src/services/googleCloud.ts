@@ -271,15 +271,26 @@ export async function logPaymentToBigQuery(payment: PaymentRecord): Promise<bool
     }
 
     const table = bigQuery.dataset(dataset).table("payments");
-    await table.insert([{
-      id: payment.paymentId,
-      business_id: payment.businessId,
-      invoice_id: payment.invoiceId,
-      amount: payment.amount,
-      mode: payment.mode,
-      direction: payment.direction,
-      created_at: payment.createdAt,
-    }]);
+    const [metadata] = await table.getMetadata();
+    const columns = new Set((metadata.schema?.fields || []).map((field: { name: string }) => field.name));
+    const row: Record<string, unknown> = {};
+    const setIfPresent = (name: string, value: unknown) => { if (columns.has(name)) row[name] = value; };
+    setIfPresent("id", payment.paymentId);
+    setIfPresent("paymentId", payment.paymentId);
+    setIfPresent("business_id", payment.businessId);
+    setIfPresent("businessId", payment.businessId);
+    setIfPresent("invoice_id", payment.invoiceId);
+    setIfPresent("invoiceId", payment.invoiceId);
+    setIfPresent("bill_id", payment.billId);
+    setIfPresent("billId", payment.billId);
+    setIfPresent("amount", payment.amount);
+    setIfPresent("mode", payment.mode);
+    setIfPresent("direction", payment.direction);
+    setIfPresent("reconciled", payment.reconciled);
+    setIfPresent("date", payment.date.slice(0, 10));
+    setIfPresent("created_at", payment.createdAt);
+    setIfPresent("createdAt", payment.createdAt);
+    await table.insert([row]);
     console.log(`✅ Payment logged to BigQuery`);
     return true;
   } catch (error) {

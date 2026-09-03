@@ -34,10 +34,10 @@ const pushSchema = z.object({
 });
 
 const scalarFields: Record<SyncableModel, Set<string>> = {
-  item: new Set(["id", "name", "sku", "barcode", "category", "unit", "salePrice", "purchasePrice", "taxRate", "hsnCode", "mrp", "isMrpInclusive", "currentStock", "lowStockAlert", "reorderPoint", "reorderQuantity", "grade", "scheduleClass", "saltComposition", "requiresBatchTracking", "materialTemplateId", "attributes", "updatedAt"]),
-  customer: new Set(["id", "name", "phone", "email", "gstin", "address", "openingBalance", "creditLimit", "loyaltyPoints", "lastPurchaseAt", "updatedAt"]),
-  supplier: new Set(["id", "name", "phone", "email", "gstin", "address", "openingBalance", "bankAccountNumber", "bankName", "ifscCode", "paymentTerms", "creditLimit", "isActive", "updatedAt"]),
-  expense: new Set(["id", "supplierId", "category", "amount", "taxAmount", "paymentDate", "isRecurring", "recurrenceFrequency", "referenceNumber", "note", "sourceImageUrl", "aiCategoryConfidence", "updatedAt"]),
+  item: new Set(["id", "businessId", "createdAt", "openingStock", "name", "sku", "barcode", "category", "unit", "salePrice", "purchasePrice", "taxRate", "hsnCode", "mrp", "isMrpInclusive", "currentStock", "lowStockAlert", "reorderPoint", "reorderQuantity", "grade", "scheduleClass", "saltComposition", "requiresBatchTracking", "materialTemplateId", "attributes", "updatedAt"]),
+  customer: new Set(["id", "businessId", "createdAt", "name", "phone", "email", "gstin", "address", "openingBalance", "creditLimit", "loyaltyPoints", "lastPurchaseAt", "updatedAt"]),
+  supplier: new Set(["id", "businessId", "createdAt", "name", "phone", "email", "gstin", "address", "openingBalance", "bankAccountNumber", "bankName", "ifscCode", "paymentTerms", "creditLimit", "isActive", "updatedAt"]),
+  expense: new Set(["id", "businessId", "createdAt", "supplierId", "category", "amount", "taxAmount", "paymentDate", "isRecurring", "recurrenceFrequency", "referenceNumber", "note", "sourceImageUrl", "aiCategoryConfidence", "updatedAt"]),
 };
 
 syncRouter.post("/push", async (req: AuthedRequest, res) => {
@@ -68,11 +68,11 @@ syncRouter.post("/push", async (req: AuthedRequest, res) => {
       continue;
     }
 
-    const safeRow = Object.fromEntries(Object.entries(row).filter(([key]) => key !== "businessId"));
+    const safeRow = Object.fromEntries(Object.entries(row).filter(([key]) => key !== "businessId" && key !== "createdAt" && key !== "openingStock"));
     await delegate.upsert({
       where: { id: row.id },
       update: { ...safeRow, businessId: req.businessId },
-      create: { ...safeRow, businessId: req.businessId },
+      create: { ...safeRow, businessId: req.businessId, ...(row.createdAt ? { createdAt: new Date(row.createdAt) } : {}) },
     });
     results.push({ id: row.id, outcome: "applied" });
   }
