@@ -71,7 +71,12 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Apply Prisma migrations
-        run: npx prisma migrate deploy
+        run: |
+          set -euo pipefail
+          # Neon pooled connections can hold Prisma's migration advisory lock
+          # long enough to time out. Use the direct hostname for migrations.
+          migration_database_url="${DATABASE_URL/-pooler/}"
+          DATABASE_URL="$migration_database_url" npx prisma migrate deploy
 
       - name: Clean stale Vercel config
         run: rm -rf .vercel
