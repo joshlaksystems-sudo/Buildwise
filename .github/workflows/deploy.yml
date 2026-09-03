@@ -242,12 +242,13 @@ jobs:
       - name: Check deployed backend health
         run: |
           set -euo pipefail
-          health_url="https://${BACKEND_DEPLOYMENT_URL#https://}/health"
+          health_url="$BACKEND_DEPLOYMENT_URL/health"
           response="$(npx vercel@latest curl \
             --yes \
             --token "${{ secrets.VERCEL_TOKEN }}" \
             --scope "${{ secrets.VERCEL_ORG_ID }}" \
-            "$health_url")" || {
+            --deployment "$BACKEND_DEPLOYMENT_URL" \
+            /health)" || {
             echo "Backend health request failed: $health_url"
             exit 1
           }
