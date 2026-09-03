@@ -164,7 +164,9 @@ jobs:
           META_WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.META_WHATSAPP_PHONE_NUMBER_ID }}
           CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
         run: |
-          deployment_json="$(npx vercel@latest deploy --prod --yes --json \
+          deployment_output_file="$(mktemp)"
+          trap 'rm -f "$deployment_output_file"' EXIT
+          npx vercel@latest deploy --prod --yes \
             --token="${{ secrets.VERCEL_TOKEN }}" \
             --scope="${{ secrets.VERCEL_ORG_ID }}" \
             --project="${{ secrets.VERCEL_BACKEND_PROJECT_ID }}" \
@@ -195,8 +197,12 @@ jobs:
             --env "META_WHATSAPP_VERIFY_TOKEN=$META_WHATSAPP_VERIFY_TOKEN" \
             --env "META_WHATSAPP_ACCESS_TOKEN=$META_WHATSAPP_ACCESS_TOKEN" \
             --env "META_WHATSAPP_PHONE_NUMBER_ID=$META_WHATSAPP_PHONE_NUMBER_ID" \
-            --env "CORS_ORIGINS=$CORS_ORIGINS")"
-          backend_deployment_url="$(printf '%s' "$deployment_json" | jq -er '.url')"
+            --env "CORS_ORIGINS=$CORS_ORIGINS" 2>&1 | tee "$deployment_output_file"
+          backend_deployment_url="$( { grep -E '^[[:space:]]*Production[[:space:]]+https://' "$deployment_output_file" || true; } | grep -Eo 'https://[^[:space:]]+\.vercel\.app' | tail -n 1 | sed 's:/$::')"
+          if [ -z "$backend_deployment_url" ]; then
+            echo "Could not find the backend Production URL in Vercel output."
+            exit 1
+          fi
           echo "Backend deployment created: $backend_deployment_url"
           echo "BACKEND_DEPLOYMENT_URL=$backend_deployment_url" >> "$GITHUB_ENV"
 
