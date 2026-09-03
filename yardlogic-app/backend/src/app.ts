@@ -24,6 +24,7 @@ import { returnsRouter } from "./routes/returns";
 import { creditDebitNotesRouter } from "./routes/creditDebitNotes";
 import { bankStatementsRouter } from "./routes/bankStatements";
 import { notificationsRouter } from "./routes/notifications";
+import { advancedWorkflowsRouter } from "./routes/advancedWorkflows";
 import { prisma } from "./lib/prisma";
 
 const app = express();
@@ -77,6 +78,7 @@ app.use("/forecast", forecastRouter);
 app.use("/bank", bankRouter);
 app.use("/bank", bankStatementsRouter);
 app.use("/notifications", notificationsRouter);
+app.use("/advanced", advancedWorkflowsRouter);
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
 	console.error("Unhandled API error:", error);

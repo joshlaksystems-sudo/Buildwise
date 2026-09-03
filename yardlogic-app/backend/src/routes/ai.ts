@@ -2,7 +2,6 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { AuthedRequest, requireAuth } from "../middleware/auth";
-import { categorizeReceiptText, answerBusinessQuestion } from "../services/aiService";
 import {
   categorizeExpenseWithVertexAI,
   isSubscriptionActive,
@@ -61,18 +60,10 @@ aiRouter.post("/categorize-expense", async (req: AuthedRequest, res) => {
   try {
     const parsed = ocrSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    if (process.env.VERTEX_AI_ENABLE !== "true") return res.status(503).json({ error: "Vertex AI is not enabled" });
 
     const result = await withAICredit(req.businessId!, req.userId!, "categorizeExpense", async () => {
-      // Use Vertex AI if enabled, otherwise fallback to Claude.
-      if (process.env.VERTEX_AI_ENABLE === "true") {
-        try {
-          return await categorizeExpenseWithVertexAI(parsed.data.rawText);
-        } catch (error) {
-          console.warn("Vertex AI failed, falling back to Claude:", error);
-          return categorizeReceiptText(parsed.data.rawText);
-        }
-      }
-      return categorizeReceiptText(parsed.data.rawText);
+      return categorizeExpenseWithVertexAI(parsed.data.rawText);
     });
     const validatedResult = aiExpenseResultSchema.safeParse(result);
     if (!validatedResult.success) {
@@ -150,10 +141,9 @@ aiRouter.post("/ask", async (req: AuthedRequest, res) => {
       }),
     ]);
 
+    if (process.env.VERTEX_AI_ENABLE !== "true") return res.status(503).json({ error: "Vertex AI is not enabled" });
     const answer = await withAICredit(req.businessId!, req.userId!, "ask", () =>
-      process.env.VERTEX_AI_ENABLE === "true"
-        ? answerBusinessQuestionWithVertexAI(parsed.data.question, { invoices, expenses, payments, gstFilings })
-        : answerBusinessQuestion(parsed.data.question, { invoices, expenses, payments, gstFilings })
+      answerBusinessQuestionWithVertexAI(parsed.data.question, { invoices, expenses, payments, gstFilings })
     );
 
     res.json({ answer });
@@ -232,12 +222,9 @@ aiRouter.post("/generate-report", async (req: AuthedRequest, res) => {
       },
     };
 
-    if (process.env.VERTEX_AI_ENABLE === "true") {
-      const insights = await withAICredit(req.businessId!, req.userId!, "generateReport", () => generateReportWithVertexAI(reportData, parsed.data.reportType));
-      return res.json({ report: reportData, insights });
-    }
-
-    res.json({ report: reportData, insights: "Upgrade to premium for AI insights" });
+    if (process.env.VERTEX_AI_ENABLE !== "true") return res.status(503).json({ error: "Vertex AI is not enabled" });
+    const insights = await withAICredit(req.businessId!, req.userId!, "generateReport", () => generateReportWithVertexAI(reportData, parsed.data.reportType));
+    res.json({ report: reportData, insights });
   } catch (error) {
     if (error instanceof AICreditExhaustedError) return res.status(402).json({ error: error.message, balance: error.balance, required: error.required });
     console.error("Error generating report:", error);

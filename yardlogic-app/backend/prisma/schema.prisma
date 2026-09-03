@@ -50,29 +50,30 @@ model Business {
   drugLicenseExpiry DateTime?
   createdAt         DateTime  @default(now())
 
-  users              UserBusiness[]
-  customers          Customer[]
-  suppliers          Supplier[]
-  items              Item[]
-  invoices           Invoice[]
-  estimates          Estimate[]
-  challans           DeliveryChallan[]
-  expenses           Expense[]
-  stockMoves         StockMovement[]
-  payments           Payment[]
-  purchaseBills      PurchaseBill[]
-  warehouses         Warehouse[]
-  gstFilings         GstFiling[]
-  campaigns          Campaign[]
-  materialTemplates  MaterialTemplate[]
-  auditLogs          AuditLog[]
-  bankStatementLines BankStatementLine[]
-  creditNotes        CreditNote[]
-  debitNotes         DebitNote[]
-  notifications      Notification[]
-  aiWallet           AIWallet?
-  aiTransactions     AIWalletTransaction[]
-  aiDailyUsages      AIDailyUsage[]
+  users               UserBusiness[]
+  customers           Customer[]
+  suppliers           Supplier[]
+  items               Item[]
+  invoices            Invoice[]
+  estimates           Estimate[]
+  challans            DeliveryChallan[]
+  expenses            Expense[]
+  stockMoves          StockMovement[]
+  payments            Payment[]
+  purchaseBills       PurchaseBill[]
+  warehouses          Warehouse[]
+  stockTransfers      StockTransfer[]
+  gstFilings          GstFiling[]
+  campaigns           Campaign[]
+  materialTemplates   MaterialTemplate[]
+  auditLogs           AuditLog[]
+  bankStatementLines  BankStatementLine[]
+  creditNotes         CreditNote[]
+  debitNotes          DebitNote[]
+  notifications       Notification[]
+  aiWallet            AIWallet?
+  aiTransactions      AIWalletTransaction[]
+  aiDailyUsages       AIDailyUsage[]
   complianceDocuments ComplianceDocument[]
 }
 
@@ -268,16 +269,17 @@ model Item {
   updatedAt             DateTime @updatedAt
   createdAt             DateTime @default(now())
 
-  business          Business              @relation(fields: [businessId], references: [id])
-  materialTemplate  MaterialTemplate?     @relation(fields: [materialTemplateId], references: [id])
-  invoiceItems      InvoiceItem[]
-  purchaseBillItems PurchaseBillItem[]
-  estimateItems     EstimateItem[]
-  challanItems      DeliveryChallanItem[]
-  stockMoves        StockMovement[]
-  batches           ItemBatch[]
-  unitConversions   UnitConversion[]
-  warehouseStock    WarehouseStock[]
+  business           Business              @relation(fields: [businessId], references: [id])
+  materialTemplate   MaterialTemplate?     @relation(fields: [materialTemplateId], references: [id])
+  invoiceItems       InvoiceItem[]
+  purchaseBillItems  PurchaseBillItem[]
+  estimateItems      EstimateItem[]
+  challanItems       DeliveryChallanItem[]
+  stockMoves         StockMovement[]
+  batches            ItemBatch[]
+  unitConversions    UnitConversion[]
+  warehouseStock     WarehouseStock[]
+  stockTransferItems StockTransferItem[]
 
   @@index([businessId, barcode])
   @@index([businessId, name])
@@ -365,37 +367,37 @@ enum StockReason {
 // ---------- Billing ----------
 
 model Invoice {
-  id            String        @id @default(uuid())
-  businessId    String
-  customerId    String?
-  customerName  String? // Snapshot for walk-in customers or historical accuracy
-  customerPhone String?
-  customerEmail String?
-  number        String
-  type          InvoiceType   @default(GST)
-  status        InvoiceStatus @default(UNPAID)
-  subTotal      Float
-  discount      Float         @default(0)
-  taxTotal      Float         @default(0)
-  grandTotal    Float
-  amountPaid    Float         @default(0)
-  followUpDate  DateTime? // Used only when a balance remains due
-  paymentMode   PaymentMode?
-  dueDate       DateTime?
-  notes         String?
-  terms         String?
-  clientRequestId String? @unique
-  isEInvoice    Boolean       @default(false)
-  eInvoiceIrn   String?
-  isEWayBill    Boolean       @default(false)
+  id              String        @id @default(uuid())
+  businessId      String
+  customerId      String?
+  customerName    String? // Snapshot for walk-in customers or historical accuracy
+  customerPhone   String?
+  customerEmail   String?
+  number          String
+  type            InvoiceType   @default(GST)
+  status          InvoiceStatus @default(UNPAID)
+  subTotal        Float
+  discount        Float         @default(0)
+  taxTotal        Float         @default(0)
+  grandTotal      Float
+  amountPaid      Float         @default(0)
+  followUpDate    DateTime? // Used only when a balance remains due
+  paymentMode     PaymentMode?
+  dueDate         DateTime?
+  notes           String?
+  terms           String?
+  clientRequestId String?       @unique
+  isEInvoice      Boolean       @default(false)
+  eInvoiceIrn     String?
+  isEWayBill      Boolean       @default(false)
   // Reverse charge / TCS
-  isRcm         Boolean       @default(false) // buyer pays GST directly, not seller
-  tcsAmount     Float         @default(0) // tax collected at source (dealer/distributor sales)
+  isRcm           Boolean       @default(false) // buyer pays GST directly, not seller
+  tcsAmount       Float         @default(0) // tax collected at source (dealer/distributor sales)
   // Cement / bulk-dispatch vertical
-  vehicleNumber String?
-  transporterId String?
-  updatedAt     DateTime      @updatedAt
-  createdAt     DateTime      @default(now())
+  vehicleNumber   String?
+  transporterId   String?
+  updatedAt       DateTime      @updatedAt
+  createdAt       DateTime      @default(now())
 
   business    Business      @relation(fields: [businessId], references: [id])
   customer    Customer?     @relation(fields: [customerId], references: [id])
@@ -452,7 +454,7 @@ model PurchaseBill {
   paymentMode     PaymentMode?
   dueDate         DateTime?
   referenceNumber String? // PO/challan/supplier reference
-  clientRequestId String? @unique
+  clientRequestId String?      @unique
   updatedAt       DateTime     @updatedAt
   createdAt       DateTime     @default(now())
 
@@ -502,7 +504,7 @@ model Estimate {
   validUntil         DateTime?
   notes              String?
   terms              String?
-  clientRequestId    String? @unique
+  clientRequestId    String?        @unique
   updatedAt          DateTime       @updatedAt
   createdAt          DateTime       @default(now())
 
@@ -534,17 +536,17 @@ model EstimateItem {
 // ---------- Delivery Challans ----------
 
 model DeliveryChallan {
-  id         String        @id @default(uuid())
-  businessId String
-  customerId String?
-  number     String
-  status     ChallanStatus @default(PENDING)
-  vehicleNumber String?
-  transporterId String?
-  notes      String?
-  clientRequestId String? @unique
-  updatedAt  DateTime      @updatedAt
-  createdAt  DateTime      @default(now())
+  id              String        @id @default(uuid())
+  businessId      String
+  customerId      String?
+  number          String
+  status          ChallanStatus @default(PENDING)
+  vehicleNumber   String?
+  transporterId   String?
+  notes           String?
+  clientRequestId String?       @unique
+  updatedAt       DateTime      @updatedAt
+  createdAt       DateTime      @default(now())
 
   business Business              @relation(fields: [businessId], references: [id])
   customer Customer?             @relation(fields: [customerId], references: [id])
@@ -578,7 +580,7 @@ model Expense {
   amount               Float
   taxAmount            Float    @default(0)
   paymentDate          DateTime @default(now())
-  isRecurring           Boolean  @default(false)
+  isRecurring          Boolean  @default(false)
   recurrenceFrequency  String? // MONTHLY | WEEKLY | YEARLY
   referenceNumber      String?
   note                 String?
@@ -715,8 +717,10 @@ model Warehouse {
   isDefault  Boolean  @default(false)
   createdAt  DateTime @default(now())
 
-  business Business         @relation(fields: [businessId], references: [id])
-  stock    WarehouseStock[]
+  business          Business         @relation(fields: [businessId], references: [id])
+  stock             WarehouseStock[]
+  outgoingTransfers StockTransfer[]  @relation("TransferSource")
+  incomingTransfers StockTransfer[]  @relation("TransferDestination")
 }
 
 model WarehouseStock {
@@ -731,6 +735,35 @@ model WarehouseStock {
   @@unique([warehouseId, itemId])
 }
 
+model StockTransfer {
+  id                     String    @id @default(uuid())
+  businessId             String
+  sourceWarehouseId      String
+  destinationWarehouseId String
+  number                 String
+  status                 String    @default("DRAFT")
+  createdAt              DateTime  @default(now())
+  completedAt            DateTime?
+
+  business             Business            @relation(fields: [businessId], references: [id])
+  sourceWarehouse      Warehouse           @relation("TransferSource", fields: [sourceWarehouseId], references: [id])
+  destinationWarehouse Warehouse           @relation("TransferDestination", fields: [destinationWarehouseId], references: [id])
+  items                StockTransferItem[]
+
+  @@unique([businessId, number])
+  @@index([businessId, status])
+}
+
+model StockTransferItem {
+  id         String @id @default(uuid())
+  transferId String
+  itemId     String
+  quantity   Float
+
+  transfer StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  item     Item          @relation(fields: [itemId], references: [id])
+}
+
 // ---------- GST filing & compliance ----------
 //
 // IMPORTANT: actually submitting GSTR-1/3B, generating e-invoice
@@ -741,19 +774,19 @@ model WarehouseStock {
 // filing lifecycle once you plug in a GSP. See services/gspService.ts.
 
 model GstFiling {
-  id           String    @id @default(uuid())
-  businessId   String
-  returnType   String // GSTR1 | GSTR3B
-  period       String // "2026-08" (month) or "2026-Q2" (quarter)
-  status       String    @default("DRAFT") // DRAFT | READY | FILED | ERROR
-  taxableValue Float     @default(0)
-  taxCollected Float     @default(0)
-  itcClaimed   Float     @default(0)
-  gspReference String? // filing acknowledgement number, once actually filed via a GSP
-  filedAt      DateTime?
-  errorDetail  String?
+  id               String    @id @default(uuid())
+  businessId       String
+  returnType       String // GSTR1 | GSTR3B
+  period           String // "2026-08" (month) or "2026-Q2" (quarter)
+  status           String    @default("DRAFT") // DRAFT | READY | FILED | ERROR
+  taxableValue     Float     @default(0)
+  taxCollected     Float     @default(0)
+  itcClaimed       Float     @default(0)
+  gspReference     String? // filing acknowledgement number, once actually filed via a GSP
+  filedAt          DateTime?
+  errorDetail      String?
   preparedByUserId String?
-  createdAt    DateTime  @default(now())
+  createdAt        DateTime  @default(now())
 
   business Business @relation(fields: [businessId], references: [id])
 
@@ -761,19 +794,19 @@ model GstFiling {
 }
 
 model ComplianceDocument {
-  id          String   @id @default(uuid())
-  businessId  String
+  id               String   @id @default(uuid())
+  businessId       String
   uploadedByUserId String
-  documentType String // GSTR1_SOURCE | GSTR2B_SOURCE | PURCHASE_BILL | EXPENSE_RECEIPT | BANK_STATEMENT | OTHER
-  period      String?
-  fileName    String
-  mimeType    String
-  storageUrl  String?
-  storagePath String?
-  aiDocumentType String?
-  aiConfidence Float?
-  extractedData Json?
-  createdAt   DateTime @default(now())
+  documentType     String // GSTR1_SOURCE | GSTR2B_SOURCE | PURCHASE_BILL | EXPENSE_RECEIPT | BANK_STATEMENT | OTHER
+  period           String?
+  fileName         String
+  mimeType         String
+  storageUrl       String?
+  storagePath      String?
+  aiDocumentType   String?
+  aiConfidence     Float?
+  extractedData    Json?
+  createdAt        DateTime @default(now())
 
   business Business @relation(fields: [businessId], references: [id])
 
@@ -836,15 +869,15 @@ model Campaign {
 }
 
 model PaymentReminder {
-  id         String    @id @default(uuid())
-  businessId String
-  invoiceId  String?
-  customerId String?
-  channel    String // WHATSAPP | SMS | EMAIL
-  status     String    @default("PENDING") // PENDING | SENT | FAILED
+  id           String    @id @default(uuid())
+  businessId   String
+  invoiceId    String?
+  customerId   String?
+  channel      String // WHATSAPP | SMS | EMAIL
+  status       String    @default("PENDING") // PENDING | SENT | FAILED
   scheduledFor DateTime?
-  sentAt     DateTime?
-  createdAt  DateTime  @default(now())
+  sentAt       DateTime?
+  createdAt    DateTime  @default(now())
 
   @@index([businessId, status])
 }

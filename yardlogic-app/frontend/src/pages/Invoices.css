@@ -140,6 +140,51 @@
   font-weight: 400;
 }
 
+.line-item-field {
+  position: relative;
+}
+
+.product-suggestions {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% - 22px);
+  right: 0;
+  left: 0;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  background: var(--paper-raised);
+  box-shadow: 0 8px 20px rgb(22 35 63 / 12%);
+}
+
+.product-suggestions button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0;
+  background: var(--paper-raised);
+  color: var(--ink);
+  padding: 9px 11px;
+  text-align: left;
+}
+
+.product-suggestions button:last-child {
+  border-bottom: 0;
+}
+
+.product-suggestions button:hover {
+  background: var(--paper);
+}
+
+.product-suggestions small {
+  flex: 0 0 auto;
+  color: var(--teal);
+  font-size: 11px;
+  font-weight: 400;
+}
+
 .invoice-footer {
   margin-top: 24px;
   padding-top: 20px;

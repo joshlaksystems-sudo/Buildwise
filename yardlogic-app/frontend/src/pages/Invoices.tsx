@@ -28,6 +28,7 @@ export function Invoices() {
   const [terms, setTerms] = useState("");
   const [error, setError] = useState("");
   const [requestId, setRequestId] = useState<string | null>(null);
+  const [activeProductLine, setActiveProductLine] = useState<number | null>(null);
 
   function refresh() {
     api("/invoices").then(setInvoices).catch(() => {});
@@ -40,16 +41,10 @@ export function Invoices() {
   useEffect(() => {
     const activeBusinessId = localStorage.getItem("businessId");
     if (!activeBusinessId) return;
-    Promise.all([
-      api<BusinessMetadata>(`/business/${activeBusinessId}`),
-      api<Customer[]>("/contacts/customers"),
-      api<InventoryItem[]>("/items"),
-    ]).then(([businessData, customerData, inventoryData]) => {
-      setBusiness(businessData);
-      setCustomers(customerData);
-      setInventory(inventoryData);
-    }).catch((requestError) => {
-      setError(requestError instanceof Error ? requestError.message : "Unable to load invoice metadata");
+    api<BusinessMetadata>(`/business/${activeBusinessId}`).then(setBusiness).catch(() => {});
+    api<Customer[]>("/contacts/customers").then(setCustomers).catch(() => {});
+    refreshInventory().catch((requestError) => {
+      setError(requestError instanceof Error ? requestError.message : "Unable to load inventory");
     });
   }, []);
 
@@ -59,6 +54,15 @@ export function Invoices() {
   async function submit() {
     if (lines.some((line) => !line.name.trim() || line.quantity <= 0 || line.unitPrice < 0 || line.discount < 0 || line.discount > line.quantity * line.unitPrice)) {
       setError("Check item names, quantities, prices, and discounts before creating the invoice.");
+      return;
+    }
+    const insufficient = lines.find((line) => {
+      const item = line.itemId ? inventory.find((candidate) => candidate.id === line.itemId) : undefined;
+      return item && line.quantity > item.currentStock;
+    });
+    if (insufficient) {
+      const item = inventory.find((candidate) => candidate.id === insufficient.itemId);
+      setError(`${item?.name || "Product"} has only ${item?.currentStock || 0} ${item?.unit || "units"} available.`);
       return;
     }
     setCreating(true);
@@ -71,6 +75,7 @@ export function Invoices() {
       setCustomerId(""); setCustomerName(""); setCustomerPhone(""); setCustomerEmail("");
       setAmountPaid(0); setPaymentMode("CASH"); setDueDate(""); setFollowUpDate(""); setNotes(""); setTerms("");
       setRequestId(null);
+      setActiveProductLine(null);
       refresh();
       await refreshInventory();
     } catch (requestError) {
@@ -94,6 +99,11 @@ export function Invoices() {
     updateLine(index, match
       ? { itemId: match.id, name: match.name, unitPrice: match.salePrice, taxRate: match.taxRate }
       : { itemId: undefined, name: value });
+  }
+
+  function selectProduct(index: number, item: InventoryItem) {
+    updateLine(index, { itemId: item.id, name: item.name, unitPrice: item.salePrice, taxRate: item.taxRate });
+    setActiveProductLine(null);
   }
 
   // A plain <a href> can't carry the Authorization/X-Business-Id
@@ -191,8 +201,10 @@ export function Invoices() {
         {lines.map((l, i) => (
           <div key={i} className="invoice-line">
             <label className="line-item-field">Product or item name
-              <input list={`inventory-options-${i}`} placeholder="Start typing a product name" value={l.name} onChange={(e) => typeInventoryItem(i, e.target.value)} />
-              <datalist id={`inventory-options-${i}`}>{inventory.map((item) => <option key={item.id} value={item.name}>{item.currentStock} {item.unit} available</option>)}</datalist>
+              <input autoComplete="off" placeholder="Start typing a product name" value={l.name} onFocus={() => setActiveProductLine(i)} onChange={(e) => { setActiveProductLine(i); typeInventoryItem(i, e.target.value); }} />
+              {activeProductLine === i && l.name.trim() && inventory.filter((item) => item.name.toLowerCase().includes(l.name.trim().toLowerCase())).length > 0 && <div className="product-suggestions">
+                {inventory.filter((item) => item.name.toLowerCase().includes(l.name.trim().toLowerCase())).slice(0, 8).map((item) => <button type="button" key={item.id} onMouseDown={(event) => event.preventDefault()} onClick={() => selectProduct(i, item)}><span>{item.name}</span><small>{item.currentStock} {item.unit} available</small></button>)}
+              </div>}
               <small>{l.itemId ? `${inventory.find((item) => item.id === l.itemId)?.currentStock ?? 0} ${inventory.find((item) => item.id === l.itemId)?.unit ?? "units"} currently in stock` : "Saved products will fill price and GST automatically."}</small>
             </label>
             <label>Quantity<input type="number" min="0.01" placeholder="0" value={l.quantity} onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })} /></label>
