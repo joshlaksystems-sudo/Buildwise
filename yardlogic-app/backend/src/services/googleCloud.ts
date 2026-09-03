@@ -19,6 +19,45 @@ let bigQuery: BigQuery;
 let storage: Storage;
 let vertexAI: VertexAI;
 
+function geminiRequest(input: unknown, systemInstruction?: unknown) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("Gemini fallback is not configured. Set GEMINI_API_KEY.");
+  const parts = typeof input === "string" ? [{ text: input }] : input;
+  return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_MODEL_ID || "gemini-2.5-flash"}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contents: [{ role: "user", parts }], ...(systemInstruction ? { system_instruction: { parts: [{ text: systemInstruction }] } } : {}) }),
+    signal: AbortSignal.timeout(30000),
+  }).then(async (response) => {
+    if (!response.ok) throw new Error(`Gemini API request failed: ${response.status} ${await response.text()}`);
+    const data = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error("Gemini API did not return text");
+    return { response: { candidates: [{ content: { parts: [{ text }] } }] } };
+  });
+}
+
+function withGeminiFallback(primary: any): any {
+  return {
+    getGenerativeModel(options: any) {
+      const model = primary?.getGenerativeModel?.(options);
+      return {
+        generateContent(input: unknown) {
+          if (!model) return geminiRequest(input, options.systemInstruction);
+          return model.generateContent(input).catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : String(error);
+            if (message.includes("403") || message.includes("SERVICE_DISABLED") || message.includes("PERMISSION_DENIED")) {
+              console.warn("Vertex AI unavailable; using Gemini API fallback.");
+              return geminiRequest(input, options.systemInstruction);
+            }
+            throw error;
+          });
+        },
+      };
+    },
+  };
+}
+
 function getServiceAccountCredentials(): Record<string, string> | undefined {
   const raw = process.env.GCP_SERVICE_ACCOUNT_KEY;
   if (!raw) return undefined;
@@ -110,6 +149,11 @@ export function initializeGoogleCloud() {
     const hasCredentials = Boolean(credentials || (credentialsPath && fs.existsSync(credentialsPath)));
 
     if (!projectId || !hasCredentials) {
+      if (process.env.GEMINI_API_KEY) {
+        vertexAI = withGeminiFallback(null);
+        console.log("✅ Gemini API fallback initialized (Vertex AI credentials unavailable)");
+        return;
+      }
       console.warn(
         "⚠️  Google Cloud not configured (missing GOOGLE_CLOUD_PROJECT_ID or GOOGLE_APPLICATION_CREDENTIALS). Skipping init; AI/BigQuery/Storage features are disabled."
       );
@@ -130,11 +174,11 @@ export function initializeGoogleCloud() {
     });
 
     // Initialize Vertex AI
-    vertexAI = new VertexAIClass({
+    vertexAI = withGeminiFallback(new VertexAIClass({
       project: projectId,
       location,
       ...(credentials ? { googleAuthOptions: { credentials } } : {}),
-    });
+    }));
 
     console.log("✅ Google Cloud services initialized");
     console.log(`   - Project: ${projectId}`);

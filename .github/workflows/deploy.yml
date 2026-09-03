@@ -47,6 +47,7 @@ jobs:
           VERTEX_AI_ENABLE: ${{ secrets.VERTEX_AI_ENABLE }}
           VERTEX_AI_LOCATION: ${{ secrets.VERTEX_AI_LOCATION }}
           VERTEX_AI_MODEL_ID: ${{ secrets.VERTEX_AI_MODEL_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
           GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
           GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
@@ -99,7 +100,6 @@ jobs:
           echo "$GOOGLE_APPLICATION_CREDENTIALS_JSON" > /tmp/gcp-key.json
           trap 'rm -f /tmp/gcp-key.json /tmp/bigquery-schema.sql' EXIT
           gcloud auth activate-service-account --key-file=/tmp/gcp-key.json
-          gcloud services enable aiplatform.googleapis.com bigquery.googleapis.com storage.googleapis.com --project="$GOOGLE_CLOUD_PROJECT_ID"
 
           if ! bq show --dataset "${GOOGLE_CLOUD_PROJECT_ID}:${BIGQUERY_DATASET}" > /dev/null 2>&1; then
             bq mk --dataset --location="$BIGQUERY_REGION" "${GOOGLE_CLOUD_PROJECT_ID}:${BIGQUERY_DATASET}"
@@ -147,6 +147,7 @@ jobs:
           VERTEX_AI_ENABLE: ${{ secrets.VERTEX_AI_ENABLE }}
           VERTEX_AI_LOCATION: ${{ secrets.VERTEX_AI_LOCATION }}
           VERTEX_AI_MODEL_ID: ${{ secrets.VERTEX_AI_MODEL_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           VERTEX_AI_SUBSCRIPTION_REQUIRED: ${{ secrets.VERTEX_AI_SUBSCRIPTION_REQUIRED }}
           AI_DAILY_FREE_TOKENS: ${{ secrets.AI_DAILY_FREE_TOKENS }}
           AI_DAILY_FREE_CHATS: ${{ secrets.AI_DAILY_FREE_CHATS }}
@@ -179,6 +180,7 @@ jobs:
             --env "VERTEX_AI_ENABLE=$VERTEX_AI_ENABLE" \
             --env "VERTEX_AI_LOCATION=$VERTEX_AI_LOCATION" \
             --env "VERTEX_AI_MODEL_ID=$VERTEX_AI_MODEL_ID" \
+            --env "GEMINI_API_KEY=$GEMINI_API_KEY" \
             --env "VERTEX_AI_SUBSCRIPTION_REQUIRED=$VERTEX_AI_SUBSCRIPTION_REQUIRED" \
             --env "AI_DAILY_FREE_TOKENS=$AI_DAILY_FREE_TOKENS" \
             --env "AI_DAILY_FREE_CHATS=$AI_DAILY_FREE_CHATS" \
