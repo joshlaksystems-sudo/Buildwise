@@ -240,13 +240,13 @@ jobs:
           echo "BACKEND_DEPLOYMENT_URL=$backend_deployment_url" >> "$GITHUB_ENV"
 
       - name: Check deployed backend health
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
         run: |
           set -euo pipefail
           health_url="$BACKEND_DEPLOYMENT_URL/health"
-          response="$(npx vercel@latest \
-            --token "${{ secrets.VERCEL_TOKEN }}" \
-            --scope "${{ secrets.VERCEL_ORG_ID }}" \
-            curl \
+          response="$(npx vercel@latest curl \
             --yes \
             --deployment "$BACKEND_DEPLOYMENT_URL" \
             /health)" || {
