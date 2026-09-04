@@ -55,7 +55,7 @@ advancedWorkflowsRouter.post("/eway-bills/formulate", requireAuth, async (req: A
     vehicleNo: parsed.data.vehicleNumber,
     itemList: invoice.items.map((item) => ({
       productName: item.name,
-      hsnCode: undefined,
+      hsnCode: invoice.items.find((invoiceItem) => invoiceItem.id === item.id)?.hsnCode ?? undefined,
       quantity: item.quantity,
       taxableAmount: item.lineTotal,
       gstRate: item.taxRate,

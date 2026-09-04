@@ -17,6 +17,7 @@ const lineSchema = z.object({
   unitPrice: z.number().nonnegative(),
   discount: z.number().min(0).default(0),
   taxRate: z.number().min(0).max(100).default(0),
+  hsnCode: z.string().trim().max(20).optional(),
 });
 
 const invoiceSchema = z.object({
@@ -25,6 +26,8 @@ const invoiceSchema = z.object({
   customerPhone: z.string().trim().max(30).optional(),
   customerEmail: z.string().trim().email().optional(),
   type: z.enum(["GST", "NON_GST", "POS"]).default("GST"),
+  placeOfSupplyStateCode: z.string().trim().max(3).optional(),
+  isRcm: z.boolean().default(false),
   lines: z.array(lineSchema).min(1),
   paymentMode: z.enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"]).optional(),
   amountPaid: z.number().min(0).default(0),
@@ -55,10 +58,13 @@ export async function nextInvoiceNumber(businessId: string, client: Prisma.Trans
   return `${prefix}-${String(highestNumber + 1).padStart(4, "0")}`;
 }
 
-function computeLine(line: z.infer<typeof lineSchema>) {
+function computeLine(line: z.infer<typeof lineSchema>, isInterState: boolean) {
   const base = line.quantity * line.unitPrice - line.discount;
   const tax = base * (line.taxRate / 100);
-  return { lineTotal: base + tax, tax, base };
+  const cgstAmount = isInterState ? 0 : tax / 2;
+  const sgstAmount = isInterState ? 0 : tax / 2;
+  const igstAmount = isInterState ? tax : 0;
+  return { lineTotal: base + tax, tax, base, cgstAmount, sgstAmount, igstAmount };
 }
 
 invoicesRouter.post("/", async (req: AuthedRequest, res) => {
@@ -66,7 +72,11 @@ invoicesRouter.post("/", async (req: AuthedRequest, res) => {
   if (clientRequestId && clientRequestId.length > 120) return res.status(400).json({ error: "X-Idempotency-Key is too long" });
   const parsed = invoiceSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const { customerId, customerName, customerPhone, customerEmail, type, lines, paymentMode, amountPaid, dueDate, followUpDate, notes, terms } = parsed.data;
+  const { customerId, customerName, customerPhone, customerEmail, type, placeOfSupplyStateCode, isRcm, lines, paymentMode, amountPaid, dueDate, followUpDate, notes, terms } = parsed.data;
+
+  const business = await prisma.business.findUnique({ where: { id: req.businessId }, select: { stateCode: true } });
+  if (!business) return res.status(404).json({ error: "Business not found" });
+  const isInterState = Boolean(placeOfSupplyStateCode && business.stateCode && placeOfSupplyStateCode !== business.stateCode);
 
   let subTotal = 0;
   let taxTotal = 0;
@@ -75,12 +85,15 @@ invoicesRouter.post("/", async (req: AuthedRequest, res) => {
     return res.status(422).json({ error: "Line discount cannot be greater than the line amount" });
   }
   const computed = lines.map((l) => {
-    const { lineTotal, tax, base } = computeLine(l);
+    const { lineTotal, tax, base, cgstAmount, sgstAmount, igstAmount } = computeLine(l, isInterState);
     subTotal += base;
     taxTotal += tax;
-    return { ...l, lineTotal };
+    return { ...l, lineTotal, cgstAmount, sgstAmount, igstAmount };
   });
   const grandTotal = subTotal + taxTotal;
+  const cgstTotal = computed.reduce((sum, line) => sum + line.cgstAmount, 0);
+  const sgstTotal = computed.reduce((sum, line) => sum + line.sgstAmount, 0);
+  const igstTotal = computed.reduce((sum, line) => sum + line.igstAmount, 0);
   if (amountPaid > grandTotal) {
     return res.status(422).json({ error: "Amount paid cannot be greater than the invoice total" });
   }
@@ -146,10 +159,14 @@ invoicesRouter.post("/", async (req: AuthedRequest, res) => {
         customerName: selectedCustomer?.name ?? customerName,
         customerPhone: selectedCustomer?.phone ?? customerPhone,
         customerEmail: selectedCustomer?.email ?? customerEmail,
+        placeOfSupplyStateCode,
         number,
         type,
         subTotal,
         taxTotal,
+        cgstTotal,
+        sgstTotal,
+        igstTotal,
         grandTotal,
         amountPaid,
         followUpDate: followUpDate ? new Date(followUpDate) : undefined,
@@ -157,6 +174,7 @@ invoicesRouter.post("/", async (req: AuthedRequest, res) => {
         dueDate: dueDate ? new Date(dueDate) : undefined,
         notes,
         terms,
+        isRcm,
         clientRequestId,
         status,
         items: { create: computed },
@@ -281,10 +299,17 @@ invoicesRouter.patch("/:id", async (req: AuthedRequest, res) => {
   const updated = await prisma.$transaction(async (tx) => {
     const existing = await tx.invoice.findFirst({ where: { id: req.params.id, businessId: req.businessId, status: { not: "CANCELLED" } }, include: { items: true } });
     if (!existing) return null;
-    const nextLines = data.lines || existing.items.map((item) => ({ itemId: item.itemId || undefined, name: item.name, quantity: item.quantity, unitPrice: item.unitPrice, discount: item.discount, taxRate: item.taxRate }));
-    const computed = nextLines.map((line) => ({ ...line, lineTotal: computeLine(line).lineTotal }));
-    const subTotal = nextLines.reduce((sum, line) => sum + computeLine(line).base, 0);
-    const taxTotal = nextLines.reduce((sum, line) => sum + computeLine(line).tax, 0);
+    if (existing.lockedAt) throw new Error("Invoice is locked; issue a credit or debit note instead");
+    const nextPlaceOfSupply = data.placeOfSupplyStateCode ?? existing.placeOfSupplyStateCode;
+    const business = await tx.business.findUnique({ where: { id: req.businessId }, select: { stateCode: true } });
+    const isInterState = Boolean(nextPlaceOfSupply && business?.stateCode && nextPlaceOfSupply !== business.stateCode);
+    const nextLines = data.lines || existing.items.map((item) => ({ itemId: item.itemId || undefined, name: item.name, quantity: item.quantity, unitPrice: item.unitPrice, discount: item.discount, taxRate: item.taxRate, hsnCode: item.hsnCode || undefined }));
+    const computed = nextLines.map((line) => ({ ...line, ...computeLine(line, isInterState) }));
+    const subTotal = nextLines.reduce((sum, line) => sum + computeLine(line, isInterState).base, 0);
+    const taxTotal = nextLines.reduce((sum, line) => sum + computeLine(line, isInterState).tax, 0);
+    const cgstTotal = computed.reduce((sum, line) => sum + line.cgstAmount, 0);
+    const sgstTotal = computed.reduce((sum, line) => sum + line.sgstAmount, 0);
+    const igstTotal = computed.reduce((sum, line) => sum + line.igstAmount, 0);
     const grandTotal = subTotal + taxTotal;
     const amountPaid = data.amountPaid ?? existing.amountPaid;
     if (amountPaid > grandTotal) throw new Error("Amount paid cannot be greater than the invoice total");
@@ -311,7 +336,7 @@ invoicesRouter.patch("/:id", async (req: AuthedRequest, res) => {
       where: { id: existing.id },
       data: {
         customerName: data.customerName, customerPhone: data.customerPhone, customerEmail: data.customerEmail,
-        type: data.type, subTotal, taxTotal, grandTotal, amountPaid, status: amountPaid >= grandTotal ? "PAID" : amountPaid > 0 ? "PARTIAL" : "UNPAID",
+        type: data.type, placeOfSupplyStateCode: nextPlaceOfSupply, isRcm: data.isRcm, subTotal, taxTotal, cgstTotal, sgstTotal, igstTotal, grandTotal, amountPaid, status: amountPaid >= grandTotal ? "PAID" : amountPaid > 0 ? "PARTIAL" : "UNPAID",
         paymentMode: data.paymentMode, dueDate: data.dueDate ? new Date(data.dueDate) : undefined, followUpDate,
         notes: data.notes, terms: data.terms, items: { create: computed },
       }, include: { customer: true, items: true, payments: true },
@@ -359,6 +384,10 @@ invoicesRouter.get("/:id/whatsapp-link", async (req: AuthedRequest, res) => {
 
   const token = signInvoiceAccessToken(invoice.id);
   const pdfUrl = `${req.protocol}://${req.get("host")}/public/invoices/${invoice.id}/pdf?token=${token}`;
+  await prisma.invoice.updateMany({
+    where: { id: invoice.id, businessId: req.businessId, lockedAt: null },
+    data: { lockedAt: new Date(), lockReason: "SHARED" },
+  });
   const message =
     `Hi${invoice.customer ? " " + invoice.customer.name : ""}, here's your bill ${invoice.number} ` +
     `from ${invoice.business.name} for ₹${invoice.grandTotal.toFixed(2)}. ` +

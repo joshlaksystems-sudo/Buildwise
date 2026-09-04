@@ -37,10 +37,10 @@ contactsRouter.post("/customers", async (req: AuthedRequest, res) => {
 });
 
 contactsRouter.get("/customers/:id", async (req: AuthedRequest, res) => {
-  const customer = await prisma.customer.findUnique({
-    where: { id: req.params.id },
+  const customer = await prisma.customer.findFirst({
+    where: { id: req.params.id, businessId: req.businessId },
   });
-  if (!customer || customer.businessId !== req.businessId) {
+  if (!customer) {
     return res.status(404).json({ error: "Customer not found" });
   }
   res.json(customer);
@@ -49,8 +49,8 @@ contactsRouter.get("/customers/:id", async (req: AuthedRequest, res) => {
 contactsRouter.patch("/customers/:id", async (req: AuthedRequest, res) => {
   const parsed = contactSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const customer = await prisma.customer.findUnique({ where: { id: req.params.id } });
-  if (!customer || customer.businessId !== req.businessId) {
+  const customer = await prisma.customer.findFirst({ where: { id: req.params.id, businessId: req.businessId } });
+  if (!customer) {
     return res.status(404).json({ error: "Customer not found" });
   }
   const updated = await prisma.customer.update({
@@ -61,8 +61,8 @@ contactsRouter.patch("/customers/:id", async (req: AuthedRequest, res) => {
 });
 
 contactsRouter.delete("/customers/:id", async (req: AuthedRequest, res) => {
-  const customer = await prisma.customer.findUnique({ where: { id: req.params.id } });
-  if (!customer || customer.businessId !== req.businessId) {
+  const customer = await prisma.customer.findFirst({ where: { id: req.params.id, businessId: req.businessId } });
+  if (!customer) {
     return res.status(404).json({ error: "Customer not found" });
   }
   await prisma.customer.delete({ where: { id: req.params.id } });
@@ -94,10 +94,10 @@ contactsRouter.post("/suppliers", async (req: AuthedRequest, res) => {
 });
 
 contactsRouter.get("/suppliers/:id", async (req: AuthedRequest, res) => {
-  const supplier = await prisma.supplier.findUnique({
-    where: { id: req.params.id },
+  const supplier = await prisma.supplier.findFirst({
+    where: { id: req.params.id, businessId: req.businessId },
   });
-  if (!supplier || supplier.businessId !== req.businessId) {
+  if (!supplier) {
     return res.status(404).json({ error: "Supplier not found" });
   }
   res.json(supplier);
@@ -106,8 +106,8 @@ contactsRouter.get("/suppliers/:id", async (req: AuthedRequest, res) => {
 contactsRouter.patch("/suppliers/:id", async (req: AuthedRequest, res) => {
   const parsed = supplierExtendedSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const supplier = await prisma.supplier.findUnique({ where: { id: req.params.id } });
-  if (!supplier || supplier.businessId !== req.businessId) {
+  const supplier = await prisma.supplier.findFirst({ where: { id: req.params.id, businessId: req.businessId } });
+  if (!supplier) {
     return res.status(404).json({ error: "Supplier not found" });
   }
   const updated = await prisma.supplier.update({
@@ -119,8 +119,8 @@ contactsRouter.patch("/suppliers/:id", async (req: AuthedRequest, res) => {
 
 // Soft delete supplier
 contactsRouter.delete("/suppliers/:id", async (req: AuthedRequest, res) => {
-  const supplier = await prisma.supplier.findUnique({ where: { id: req.params.id } });
-  if (!supplier || supplier.businessId !== req.businessId) {
+  const supplier = await prisma.supplier.findFirst({ where: { id: req.params.id, businessId: req.businessId } });
+  if (!supplier) {
     return res.status(404).json({ error: "Supplier not found" });
   }
   await prisma.supplier.update({
@@ -133,8 +133,8 @@ contactsRouter.delete("/suppliers/:id", async (req: AuthedRequest, res) => {
 // Get supplier ledger (opening balance + all transactions)
 contactsRouter.get("/suppliers/:id/ledger", async (req: AuthedRequest, res) => {
   try {
-    const supplier = await prisma.supplier.findUnique({ where: { id: req.params.id } });
-    if (!supplier || supplier.businessId !== req.businessId) {
+    const supplier = await prisma.supplier.findFirst({ where: { id: req.params.id, businessId: req.businessId } });
+    if (!supplier) {
       return res.status(404).json({ error: "Supplier not found" });
     }
 

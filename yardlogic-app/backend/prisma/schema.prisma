@@ -74,8 +74,11 @@ model Business {
   aiWallet            AIWallet?
   aiTransactions      AIWalletTransaction[]
   aiDailyUsages       AIDailyUsage[]
-  complianceDocuments ComplianceDocument[]
-  approvalRequests   ApprovalRequest[] @relation("ApprovalBusiness")
+  complianceDocuments  ComplianceDocument[]
+  approvalRequests     ApprovalRequest[] @relation("ApprovalBusiness")
+  syncEvents           SyncEvent[]
+  paymentReminders     PaymentReminder[]
+  notificationPreferences NotificationPreference[]
 }
 
 model User {
@@ -191,6 +194,7 @@ model Customer {
   phone          String?
   email          String?
   gstin          String?
+  stateCode      String?
   address        String?
   openingBalance Float     @default(0)
   creditLimit    Float? // dealer/distributor credit limit (cement, wholesale)
@@ -342,6 +346,61 @@ model MaterialTemplate {
   items    Item[]
 }
 
+model ProductCategory {
+  id         String   @id @default(uuid())
+  businessId String
+  name       String
+  parentId   String?
+  createdAt  DateTime @default(now())
+
+  @@index([businessId, parentId])
+}
+
+model StockReservation {
+  id         String   @id @default(uuid())
+  businessId String
+  itemId     String
+  warehouseId String?
+  quantity   Float
+  entityType String? // Invoice | Estimate | Order | Return
+  entityId   String?
+  createdAt  DateTime @default(now())
+
+  @@index([businessId, itemId, entityType, entityId])
+}
+
+model StockLedgerEntry {
+  id         String   @id @default(uuid())
+  businessId String
+  itemId     String
+  warehouseId String?
+  quantity   Float
+  unitCost   Float?   @default(0)
+  reason     String   // SALE | PURCHASE | ADJUSTMENT | RETURN | TRANSFER | OPENING
+  referenceType String?
+  referenceId   String?
+  note       String?
+  createdAt  DateTime @default(now())
+
+  @@index([businessId, itemId, createdAt])
+  @@index([businessId, warehouseId, createdAt])
+}
+
+model StockAudit {
+  id          String   @id @default(uuid())
+  businessId  String
+  warehouseId String?
+  itemId      String
+  countedQty  Float
+  systemQty   Float
+  variance    Float
+  status      String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  note        String?
+  createdAt   DateTime @default(now())
+
+  @@index([businessId, status, createdAt])
+}
+
 // every stock change (sale, purchase, adjustment, OCR-entry) is
 // logged here — this is what powers reorder prediction later
 model StockMovement {
@@ -369,6 +428,45 @@ enum StockReason {
 
 // ---------- Billing ----------
 
+model RecurringInvoice {
+  id          String   @id @default(uuid())
+  businessId  String
+  customerId  String?
+  number      String
+  frequency   String   // MONTHLY | QUARTERLY | YEARLY
+  nextRunAt   DateTime
+  status      String   @default("ACTIVE") // ACTIVE | PAUSED | CANCELLED
+  note        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([businessId, number])
+}
+
+model RecurringInvoiceItem {
+  id                String @id @default(uuid())
+  recurringInvoiceId String
+  itemId            String?
+  name              String
+  quantity          Float
+  unitPrice         Float
+  taxRate           Float @default(0)
+  lineTotal         Float
+
+  @@index([recurringInvoiceId])
+}
+
+model CurrencyRate {
+  id         String   @id @default(uuid())
+  businessId String
+  base      String   @default("INR")
+  target    String
+  rate      Float
+  asOf      DateTime @default(now())
+
+  @@index([businessId, target, asOf])
+}
+
 model Invoice {
   id              String        @id @default(uuid())
   businessId      String
@@ -376,12 +474,16 @@ model Invoice {
   customerName    String? // Snapshot for walk-in customers or historical accuracy
   customerPhone   String?
   customerEmail   String?
+  placeOfSupplyStateCode String?
   number          String
   type            InvoiceType   @default(GST)
   status          InvoiceStatus @default(UNPAID)
   subTotal        Float
   discount        Float         @default(0)
   taxTotal        Float         @default(0)
+  cgstTotal       Float         @default(0)
+  sgstTotal       Float         @default(0)
+  igstTotal       Float         @default(0)
   grandTotal      Float
   amountPaid      Float         @default(0)
   followUpDate    DateTime? // Used only when a balance remains due
@@ -395,6 +497,8 @@ model Invoice {
   isEWayBill      Boolean       @default(false)
   // Reverse charge / TCS
   isRcm           Boolean       @default(false) // buyer pays GST directly, not seller
+  lockedAt        DateTime?
+  lockReason      String?
   tcsAmount       Float         @default(0) // tax collected at source (dealer/distributor sales)
   // Cement / bulk-dispatch vertical
   vehicleNumber   String?
@@ -435,6 +539,10 @@ model InvoiceItem {
   unitPrice Float
   discount  Float   @default(0)
   taxRate   Float   @default(0)
+  hsnCode   String?
+  cgstAmount Float  @default(0)
+  sgstAmount Float  @default(0)
+  igstAmount Float  @default(0)
   lineTotal Float
 
   invoice Invoice @relation(fields: [invoiceId], references: [id])
@@ -486,6 +594,9 @@ model PurchaseBillItem {
   unitPrice Float
   discount  Float   @default(0)
   taxRate   Float   @default(0)
+  hsnCode   String?
+  itcEligible Boolean @default(true)
+  itcBlockedReason String?
   lineTotal Float
 
   bill PurchaseBill @relation(fields: [billId], references: [id])
@@ -644,6 +755,35 @@ model SalesmanLog {
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])
+}
+
+model StaffAttendance {
+  id         String   @id @default(uuid())
+  businessId String
+  userId     String
+  date       DateTime @db.Date
+  checkIn    DateTime?
+  checkOut   DateTime?
+  status     String   @default("PRESENT") // PRESENT | ABSENT | HALF_DAY | LEAVE
+  note       String?
+  createdAt  DateTime @default(now())
+
+  @@unique([businessId, userId, date])
+  @@index([businessId, date])
+}
+
+model CommissionEntry {
+  id          String   @id @default(uuid())
+  businessId  String
+  userId      String
+  customerId  String?
+  invoiceId   String?
+  amount      Float
+  commission  Float
+  status      String   @default("PENDING") // PENDING | PAID | REJECTED
+  createdAt   DateTime @default(now())
+
+  @@index([businessId, userId, createdAt])
 }
 
 // ---------- Credit / Debit Notes ----------
@@ -832,6 +972,47 @@ model ItcReconciliation {
   @@index([businessId, matchStatus])
 }
 
+model TdsEntry {
+  id             String   @id @default(uuid())
+  businessId     String
+  vendorId       String?
+  type           String   // TDS | TCS
+  section        String?
+  amount         Float
+  rate           Float?
+  deductionDate  DateTime?
+  reference      String?
+  createdAt      DateTime @default(now())
+
+  @@index([businessId, deductionDate])
+}
+
+model FixedAsset {
+  id          String   @id @default(uuid())
+  businessId  String
+  name        String
+  category    String?
+  purchaseDate DateTime?
+  cost        Float
+  salvageValue Float   @default(0)
+  usefulLifeYears Int?
+  depreciationMethod String? // STRAIGHT_LINE | WRITTEN_DOWN
+  status      String   @default("ACTIVE") // ACTIVE | DISPOSED | SOLD
+  createdAt   DateTime @default(now())
+
+  @@index([businessId, status])
+}
+
+model FixedAssetDepreciation {
+  id          String   @id @default(uuid())
+  assetId     String
+  period      String   // YYYY-MM
+  amount      Float
+  createdAt   DateTime @default(now())
+
+  @@index([assetId, period])
+}
+
 model EwayBill {
   id            String    @id @default(uuid())
   invoiceId     String    @unique
@@ -882,7 +1063,46 @@ model PaymentReminder {
   sentAt       DateTime?
   createdAt    DateTime  @default(now())
 
+  business Business @relation(fields: [businessId], references: [id])
+
   @@index([businessId, status])
+}
+
+model CustomerPortalSession {
+  id         String   @id @default(uuid())
+  businessId String
+  customerId String?
+  token      String   @unique
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@index([businessId, customerId])
+}
+
+model AiInsight {
+  id         String   @id @default(uuid())
+  businessId String
+  type       String   // CASH_FLOW | RISK | REORDER | GROWTH
+  title      String
+  message    String
+  score      Float?   @default(0)
+  actionUrl  String?
+  createdAt  DateTime @default(now())
+
+  @@index([businessId, type, createdAt])
+}
+
+model SalesForecast {
+  id                 String   @id @default(uuid())
+  businessId         String
+  itemId             String?
+  forecastDate       DateTime
+  predictedQuantity  Float
+  confidence         Float?
+  method             String? // TREND | SEASONAL | ML
+  createdAt          DateTime @default(now())
+
+  @@index([businessId, forecastDate])
 }
 
 model ApprovalRequest {
@@ -945,6 +1165,23 @@ model BankStatementLine {
   @@index([businessId, status])
 }
 
+model SyncEvent {
+  id         String   @id @default(uuid())
+  businessId String?
+  source     String // appscript | offline_client | gsp | etc.
+  eventType  String // push_conflict | gsp_timeout | duplicate_row | etc.
+  tableName  String?
+  rowId      String?
+  problem    String
+  resolution String?
+  status     String   @default("OPEN") // OPEN | RESOLVED | IGNORED
+  createdAt  DateTime @default(now())
+
+  business Business? @relation(fields: [businessId], references: [id])
+
+  @@index([businessId, status, createdAt])
+}
+
 // ---------- Notifications ----------
 
 // User notifications for low stock, overdue invoices, payments due, etc.
@@ -981,7 +1218,8 @@ model NotificationPreference {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  user User @relation("UserPreferences", fields: [userId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
+  user     User     @relation("UserPreferences", fields: [userId], references: [id])
 
   @@unique([businessId, userId])
 }

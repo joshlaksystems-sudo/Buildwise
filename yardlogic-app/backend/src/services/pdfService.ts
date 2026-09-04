@@ -27,7 +27,7 @@ interface InvoiceForPdf {
   customerName?: string | null;
   customerPhone?: string | null;
   customerEmail?: string | null;
-  items: { name: string; quantity: number; unitPrice: number; taxRate: number; lineTotal: number }[];
+  items: { name: string; quantity: number; unitPrice: number; taxRate: number; hsnCode?: string | null; cgstAmount?: number; sgstAmount?: number; igstAmount?: number; lineTotal: number }[];
 }
 
 export function generateInvoicePdf(invoice: InvoiceForPdf): Promise<Buffer> {
@@ -67,7 +67,7 @@ export function generateInvoicePdf(invoice: InvoiceForPdf): Promise<Buffer> {
     const columns = { item: left + 12, qty: right - 242, price: right - 180, gst: right - 106, total: right - 12 };
     doc.rect(left, tableY, width, 28).fill(INK);
     doc.font("Helvetica-Bold").fontSize(8).fillColor("#ffffff");
-    doc.text("ITEM DESCRIPTION", columns.item, tableY + 9);
+    doc.text("ITEM / HSN", columns.item, tableY + 9);
     doc.text("QTY", columns.qty, tableY + 9, { width: 38, align: "right" });
     doc.text("RATE", columns.price, tableY + 9, { width: 58, align: "right" });
     doc.text("GST", columns.gst, tableY + 9, { width: 42, align: "right" });
@@ -78,7 +78,7 @@ export function generateInvoicePdf(invoice: InvoiceForPdf): Promise<Buffer> {
       const rowHeight = Math.max(28, doc.heightOfString(item.name, { width: columns.qty - columns.item - 28 }) + 16);
       if (index % 2 === 0) doc.rect(left, rowY, width, rowHeight).fill("#f7f6f1");
       doc.font("Helvetica").fontSize(9).fillColor(INK);
-      doc.text(item.name, columns.item, rowY + 9, { width: columns.qty - columns.item - 28 });
+      doc.text([item.name, item.hsnCode ? `HSN: ${item.hsnCode}` : null].filter(Boolean).join("\n"), columns.item, rowY + 9, { width: columns.qty - columns.item - 28 });
       doc.text(String(item.quantity), columns.qty, rowY + 9, { width: 38, align: "right" });
       doc.text(money(item.unitPrice), columns.price, rowY + 9, { width: 58, align: "right" });
       doc.text(`${item.taxRate}%`, columns.gst, rowY + 9, { width: 42, align: "right" });
@@ -95,8 +95,10 @@ export function generateInvoicePdf(invoice: InvoiceForPdf): Promise<Buffer> {
     };
     totalRow("Taxable subtotal", money(invoice.subTotal), totalsY);
     if (invoice.discount) totalRow("Discount", `- ${money(invoice.discount)}`, totalsY + 17);
-    totalRow("GST collected", money(invoice.taxTotal), totalsY + (invoice.discount ? 34 : 17));
-    const grandY = totalsY + (invoice.discount ? 61 : 44);
+    totalRow("CGST", money(invoice.items.reduce((sum, item) => sum + (item.cgstAmount || 0), 0)), totalsY + (invoice.discount ? 34 : 17));
+    totalRow("SGST", money(invoice.items.reduce((sum, item) => sum + (item.sgstAmount || 0), 0)), totalsY + (invoice.discount ? 51 : 34));
+    totalRow("IGST", money(invoice.items.reduce((sum, item) => sum + (item.igstAmount || 0), 0)), totalsY + (invoice.discount ? 68 : 51));
+    const grandY = totalsY + (invoice.discount ? 95 : 78);
     doc.roundedRect(right - 220, grandY - 7, 220, 35, 4).fill("#fff5df");
     totalRow("TOTAL", money(invoice.grandTotal), grandY + 5, true);
     totalRow("Paid", money(invoice.amountPaid), grandY + 48);

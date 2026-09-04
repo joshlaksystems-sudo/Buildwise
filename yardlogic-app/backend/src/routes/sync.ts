@@ -35,7 +35,7 @@ const pushSchema = z.object({
 
 const scalarFields: Record<SyncableModel, Set<string>> = {
   item: new Set(["id", "businessId", "createdAt", "openingStock", "name", "sku", "barcode", "category", "unit", "salePrice", "purchasePrice", "taxRate", "hsnCode", "mrp", "isMrpInclusive", "currentStock", "lowStockAlert", "reorderPoint", "reorderQuantity", "grade", "scheduleClass", "saltComposition", "requiresBatchTracking", "materialTemplateId", "attributes", "updatedAt"]),
-  customer: new Set(["id", "businessId", "createdAt", "name", "phone", "email", "gstin", "address", "openingBalance", "creditLimit", "loyaltyPoints", "lastPurchaseAt", "updatedAt"]),
+  customer: new Set(["id", "businessId", "createdAt", "name", "phone", "email", "gstin", "stateCode", "address", "openingBalance", "creditLimit", "loyaltyPoints", "lastPurchaseAt", "updatedAt"]),
   supplier: new Set(["id", "businessId", "createdAt", "name", "phone", "email", "gstin", "address", "openingBalance", "bankAccountNumber", "bankName", "ifscCode", "paymentTerms", "creditLimit", "isActive", "updatedAt"]),
   expense: new Set(["id", "businessId", "createdAt", "supplierId", "category", "amount", "taxAmount", "paymentDate", "isRecurring", "recurrenceFrequency", "referenceNumber", "note", "sourceImageUrl", "aiCategoryConfidence", "updatedAt"]),
 };
@@ -59,6 +59,10 @@ syncRouter.post("/push", async (req: AuthedRequest, res) => {
     if (row.updatedAt && Number.isNaN(new Date(row.updatedAt).getTime())) return res.status(400).json({ error: "Invalid updatedAt" });
 
     const existing = await delegate.findFirst({ where: { id: row.id, businessId: req.businessId } });
+    const recordWithId = await delegate.findUnique({ where: { id: row.id }, select: { businessId: true } });
+    if (recordWithId && recordWithId.businessId !== req.businessId) {
+      return res.status(409).json({ error: "This offline record ID belongs to another business" });
+    }
     const incomingUpdatedAt = row.updatedAt ? new Date(row.updatedAt) : new Date();
 
     if (existing && existing.updatedAt && new Date(existing.updatedAt) > incomingUpdatedAt) {

@@ -12,10 +12,40 @@ export const authRouter = Router();
 // each — the frontend uses this to render the business switcher and
 // to pick which X-Business-Id to send on subsequent requests.
 async function userWithBusinesses(userId: string) {
-  return prisma.user.findUnique({
+  const user = await prisma.user.findUnique({
     where: { id: userId },
-    include: { businesses: { include: { business: true } } },
+    include: {
+      businesses: {
+        include: {
+          business: {
+            select: {
+              id: true, name: true, gstin: true, address: true, logoUrl: true, defaultTax: true,
+              ownerName: true, ownerPhone: true, ownerEmail: true, stateName: true, stateCode: true,
+              gstnType: true, financialYearStart: true, invoicePrefix: true, invoiceStartNumber: true,
+              estimatePrefix: true, estimateStartNumber: true, challanPrefix: true, challanStartNumber: true,
+              businessType: true, industryVertical: true, bankAccountNumber: true, bankName: true,
+              ifscCode: true, setupComplete: true, drugLicenseNumber: true, drugLicenseExpiry: true,
+              createdAt: true,
+            },
+          },
+        },
+      },
+    },
   });
+  if (!user) return user;
+  return {
+    ...user,
+    businesses: user.businesses.map((membership) => ({
+      ...membership,
+      business: {
+        ...membership.business,
+        bankAccountNumber: membership.business.bankAccountNumber
+          ? `****${membership.business.bankAccountNumber.slice(-4)}`
+          : null,
+        ifscCode: membership.business.ifscCode ? "***********" : null,
+      },
+    })),
+  };
 }
 
 function isEmail(v: string) {
@@ -189,7 +219,8 @@ authRouter.post("/otp/verify", async (req, res) => {
     });
   }
 
-  await prisma.otp.update({ where: { id: otp.id }, data: { consumed: true } });
+  const consumed = await prisma.otp.updateMany({ where: { id: otp.id, consumed: false }, data: { consumed: true } });
+  if (consumed.count !== 1) return res.status(401).json({ error: "Invalid or already-used code" });
 
   const full = await userWithBusinesses(user.id);
   res.json({ token: signToken(user.id), user: { id: user.id, name: user.name }, businesses: full!.businesses });

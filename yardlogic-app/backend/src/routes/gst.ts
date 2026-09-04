@@ -4,7 +4,7 @@ import multer from "multer";
 import { prisma } from "../lib/prisma";
 import { AuthedRequest, requireAuth } from "../middleware/auth";
 import { fileGstReturn, generateEInvoiceIrn, generateEwayBill, GspNotConfiguredError } from "../services/gspService";
-import { organizeDocumentWithVertexAI, uploadComplianceDocumentToGCS } from "../services/googleCloud";
+import { DocumentScanError, organizeDocumentWithVertexAI, scanDocumentForMalware, uploadComplianceDocumentToGCS, validateDocumentUpload } from "../services/googleCloud";
 import { AICreditExhaustedError, withAICredit } from "../services/aiWallet";
 
 export const gstRouter = Router();
@@ -47,9 +47,15 @@ gstRouter.post("/documents", complianceUpload.single("file"), async (req: Authed
   const metadata = z.object({ documentType: z.enum(["GSTR1_SOURCE", "GSTR2B_SOURCE", "PURCHASE_BILL", "EXPENSE_RECEIPT", "BANK_STATEMENT", "OTHER"]), period: periodSchema.optional() }).safeParse(req.body);
   if (!metadata.success) return res.status(400).json({ error: metadata.error.flatten() });
   if (!req.file) return res.status(400).json({ error: "A document file is required" });
-  const uploaded = await uploadComplianceDocumentToGCS(req.file.buffer, req.file.originalname, req.file.mimetype, req.businessId!, metadata.data.documentType, metadata.data.period);
-  const document = await prisma.complianceDocument.create({ data: { businessId: req.businessId!, uploadedByUserId: req.userId!, documentType: metadata.data.documentType, period: metadata.data.period, fileName: req.file.originalname, mimeType: req.file.mimetype, storageUrl: uploaded?.url, storagePath: uploaded?.path } });
-  res.status(201).json(document);
+  try {
+    const { safeFileName } = validateDocumentUpload(req.file.buffer, req.file.mimetype, req.file.originalname);
+    await scanDocumentForMalware(req.file.buffer, safeFileName);
+    const uploaded = await uploadComplianceDocumentToGCS(req.file.buffer, safeFileName, req.file.mimetype, req.businessId!, metadata.data.documentType, metadata.data.period);
+    const document = await prisma.complianceDocument.create({ data: { businessId: req.businessId!, uploadedByUserId: req.userId!, documentType: metadata.data.documentType, period: metadata.data.period, fileName: safeFileName, mimeType: req.file.mimetype, storageUrl: uploaded?.url, storagePath: uploaded?.path } });
+    res.status(201).json(document);
+  } catch (error) {
+    return res.status(422).json({ error: error instanceof Error ? error.message : "Invalid document upload" });
+  }
 });
 
 // Vertex AI classifies the document and chooses the storage folder. It stores
@@ -58,15 +64,17 @@ gstRouter.post("/documents/ai-organize", complianceUpload.single("file"), async 
   try {
     if (!req.file) return res.status(400).json({ error: "A document file is required" });
     if (process.env.VERTEX_AI_ENABLE !== "true") return res.status(402).json({ error: "This feature requires Vertex AI to be enabled" });
+    const { safeFileName } = validateDocumentUpload(req.file.buffer, req.file.mimetype, req.file.originalname);
+    await scanDocumentForMalware(req.file.buffer, safeFileName);
 
     const organized = await withAICredit(req.businessId!, req.userId!, "organizeDocument", () =>
-      organizeDocumentWithVertexAI(req.file!.buffer, req.file!.mimetype, req.file!.originalname)
+      organizeDocumentWithVertexAI(req.file!.buffer, req.file!.mimetype, safeFileName)
     );
-    const uploaded = await uploadComplianceDocumentToGCS(req.file.buffer, req.file.originalname, req.file.mimetype, req.businessId!, organized.documentType, organized.period ?? undefined);
+    const uploaded = await uploadComplianceDocumentToGCS(req.file.buffer, safeFileName, req.file.mimetype, req.businessId!, organized.documentType, organized.period ?? undefined);
     const document = await prisma.complianceDocument.create({
       data: {
         businessId: req.businessId!, uploadedByUserId: req.userId!, documentType: organized.documentType,
-        period: organized.period ?? undefined, fileName: req.file.originalname, mimeType: req.file.mimetype,
+        period: organized.period ?? undefined, fileName: safeFileName, mimeType: req.file.mimetype,
         storageUrl: uploaded?.url, storagePath: uploaded?.path, aiDocumentType: organized.documentType,
         aiConfidence: organized.confidence, extractedData: organized.extractedData as any,
       },
@@ -74,6 +82,8 @@ gstRouter.post("/documents/ai-organize", complianceUpload.single("file"), async 
     res.status(201).json({ document, requiresReview: true, warnings: organized.warnings });
   } catch (error) {
     if (error instanceof AICreditExhaustedError) return res.status(402).json({ error: error.message, balance: error.balance, required: error.required });
+    if (error instanceof DocumentScanError) return res.status(error.message.includes("failed") ? 422 : 503).json({ error: error.message });
+    if (error instanceof Error && /document|file|period|type|empty|limit/i.test(error.message)) return res.status(422).json({ error: error.message });
     console.error("Error organizing document with Vertex AI:", error);
     res.status(500).json({ error: "Unable to organize document" });
   }
@@ -138,6 +148,11 @@ gstRouter.post("/:returnType/:period/file", async (req: AuthedRequest, res) => {
       where: { id: filing.id },
       data: { status: "FILED", gspReference: result.gspReference, filedAt: new Date() },
     });
+    const { start, end } = periodBounds(filing.period);
+    await prisma.invoice.updateMany({
+      where: { businessId: req.businessId, type: "GST", createdAt: { gte: start, lt: end }, status: { not: "CANCELLED" }, lockedAt: null },
+      data: { lockedAt: new Date(), lockReason: `FILED:${filing.returnType}` },
+    });
     res.json(updated);
   } catch (err) {
     if (err instanceof GspNotConfiguredError) {
@@ -200,7 +215,7 @@ gstRouter.post("/invoices/:id/e-invoice", async (req: AuthedRequest, res) => {
 
   try {
     const result = await generateEInvoiceIrn(req.params.id);
-    await prisma.invoice.update({ where: { id: req.params.id }, data: { isEInvoice: true, eInvoiceIrn: result.irn } });
+    await prisma.invoice.update({ where: { id: req.params.id }, data: { isEInvoice: true, eInvoiceIrn: result.irn, lockedAt: new Date(), lockReason: "E_INVOICE_SUBMITTED" } });
     res.json(result);
   } catch (err) {
     if (err instanceof GspNotConfiguredError) return res.status(501).json({ error: err.message });

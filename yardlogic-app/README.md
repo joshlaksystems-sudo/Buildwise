@@ -130,6 +130,11 @@ You'll need a Postgres instance — either local or something like Neon/
 Supabase for a free hosted one. `ANTHROPIC_API_KEY` is only required for
 the `/ai/*` endpoints; everything else works without it.
 
+Uploaded compliance documents are validated before storage and AI
+processing. For production, install ClamAV and set
+`MALWARE_SCAN_ENABLED=true` and `MALWARE_SCAN_REQUIRED=true`; when required,
+the backend rejects uploads if ClamAV is unavailable.
+
 ## Why this architecture beats a Vyapar clone
 
 1. **Offline sync was designed in, not bolted on.** The schema has no

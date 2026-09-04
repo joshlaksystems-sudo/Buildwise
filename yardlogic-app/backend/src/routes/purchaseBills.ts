@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { AuthedRequest, requireAuth } from "../middleware/auth";
 import { writeAudit } from "../services/audit";
@@ -9,22 +10,32 @@ purchaseBillsRouter.use(requireAuth);
 
 const billItemSchema = z.object({
   itemId: z.string().optional(),
-  name: z.string(),
-  quantity: z.number().min(0.01),
-  unitPrice: z.number().min(0),
-  discount: z.number().default(0),
-  taxRate: z.number().default(0),
+  name: z.string().trim().min(1).max(200),
+  quantity: z.number().finite().positive(),
+  unitPrice: z.number().finite().nonnegative(),
+  discount: z.number().finite().min(0).default(0),
+  taxRate: z.number().finite().min(0).max(100).default(0),
+  hsnCode: z.string().trim().max(20).optional(),
+  itcEligible: z.boolean().default(true),
+  itcBlockedReason: z.string().trim().max(500).optional(),
+}).superRefine((item, context) => {
+  if (item.discount > item.quantity * item.unitPrice) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Line discount cannot exceed the line amount", path: ["discount"] });
+  }
+  if (item.itcEligible && item.itcBlockedReason) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "ITC blocked reason is only valid when ITC is ineligible", path: ["itcBlockedReason"] });
+  }
 });
 
 const billSchema = z.object({
   supplierId: z.string(),
   number: z.string(),
-  subTotal: z.number().min(0),
-  discount: z.number().default(0),
-  taxTotal: z.number().default(0),
-  grandTotal: z.number().min(0),
-  items: z.array(billItemSchema),
-  paymentMode: z.string().optional(),
+  subTotal: z.number().finite().nonnegative(),
+  discount: z.number().finite().min(0).default(0),
+  taxTotal: z.number().finite().nonnegative(),
+  grandTotal: z.number().finite().nonnegative(),
+  items: z.array(billItemSchema).min(1),
+  paymentMode: z.enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"]).optional(),
   dueDate: z.string().datetime().optional(),
   referenceNumber: z.string().optional(),
 });
@@ -66,6 +77,9 @@ purchaseBillsRouter.post("/", async (req: AuthedRequest, res) => {
     const calculatedGrandTotal = calculatedSubTotal + calculatedTaxTotal - discount;
     if (Math.abs(calculatedSubTotal - subTotal) > 0.01 || Math.abs(calculatedTaxTotal - taxTotal) > 0.01 || Math.abs(calculatedGrandTotal - grandTotal) > 0.01) {
       return res.status(422).json({ error: "Bill totals do not match the item lines" });
+    }
+    if (discount > calculatedSubTotal) {
+      return res.status(422).json({ error: "Bill discount cannot exceed the subtotal" });
     }
     if (clientRequestId) {
       const previous = await prisma.purchaseBill.findFirst({ where: { businessId: req.businessId, clientRequestId }, include: { items: true } });
@@ -112,6 +126,9 @@ purchaseBillsRouter.post("/", async (req: AuthedRequest, res) => {
             unitPrice: item.unitPrice,
             discount: item.discount,
             taxRate: item.taxRate,
+            hsnCode: item.hsnCode,
+            itcEligible: item.itcEligible,
+            itcBlockedReason: item.itcBlockedReason,
             lineTotal: (item.quantity * item.unitPrice - item.discount) * (1 + item.taxRate / 100),
           })),
         },
@@ -266,6 +283,9 @@ purchaseBillsRouter.patch("/:id", async (req: AuthedRequest, res) => {
             unitPrice: item.unitPrice,
             discount: item.discount,
             taxRate: item.taxRate,
+            hsnCode: item.hsnCode,
+            itcEligible: item.itcEligible,
+            itcBlockedReason: item.itcBlockedReason,
             lineTotal: (item.quantity * item.unitPrice - item.discount) * (1 + item.taxRate / 100),
           })) },
         },
@@ -291,55 +311,39 @@ purchaseBillsRouter.patch("/:id", async (req: AuthedRequest, res) => {
 // Record payment against bill
 purchaseBillsRouter.post("/:id/pay", async (req: AuthedRequest, res) => {
   try {
-    const { amount, mode } = req.body;
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ error: "Invalid payment amount" });
-    }
+    const parsed = z.object({
+      amount: z.number().finite().positive(),
+      mode: z.enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"]).default("CASH"),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const { amount, mode } = parsed.data;
 
-    const bill = await prisma.purchaseBill.findUnique({ where: { id: req.params.id } });
-    if (!bill || bill.businessId !== req.businessId) {
-      return res.status(404).json({ error: "Bill not found" });
-    }
-
-    const newAmountPaid = bill.amountPaid + amount;
-    if (newAmountPaid > bill.grandTotal) {
-      return res.status(400).json({ error: "Payment exceeds bill amount" });
-    }
-
-    // Create payment record
-    const payment = await prisma.payment.create({
-      data: {
-        businessId: req.businessId!,
-        billId: req.params.id,
-        supplierId: bill.supplierId || undefined,
-        amount,
-        mode: mode || "CASH",
-        direction: "OUT",
-      },
-    });
-
-    // Update bill
-    const newStatus =
-      newAmountPaid === bill.grandTotal ? "PAID" : newAmountPaid > 0 ? "PARTIAL" : "RECEIVED";
-    const updatedBill = await prisma.purchaseBill.update({
-      where: { id: req.params.id },
-      data: {
-        amountPaid: newAmountPaid,
-        status: newStatus as any,
-      },
-    });
+    const result = await prisma.$transaction(async (tx) => {
+      const bill = await tx.purchaseBill.findFirst({ where: { id: req.params.id, businessId: req.businessId } });
+      if (!bill) throw new Error("BILL_NOT_FOUND");
+      if (bill.status === "CANCELLED") throw new Error("BILL_CANCELLED");
+      const newAmountPaid = bill.amountPaid + amount;
+      if (newAmountPaid > bill.grandTotal + 0.01) throw new Error("PAYMENT_EXCEEDS_BILL");
+      const payment = await tx.payment.create({ data: { businessId: req.businessId!, billId: bill.id, supplierId: bill.supplierId || undefined, amount, mode, direction: "OUT" } });
+      const newStatus = newAmountPaid >= bill.grandTotal - 0.01 ? "PAID" : "PARTIAL";
+      const updatedBill = await tx.purchaseBill.update({ where: { id: bill.id }, data: { amountPaid: Math.min(newAmountPaid, bill.grandTotal), status: newStatus } });
+      return { payment, bill: updatedBill, billNumber: bill.number };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     await writeAudit({
       businessId: req.businessId!,
       userId: req.userId,
       action: "purchasebill.payment",
       entityType: "Payment",
-      entityId: payment.id,
-      detail: { billNumber: bill.number, amount },
+      entityId: result.payment.id,
+      detail: { billNumber: result.billNumber, amount },
     });
 
-    res.json({ payment, bill: updatedBill });
+    res.json({ payment: result.payment, bill: result.bill });
   } catch (error) {
+    if (error instanceof Error && error.message === "BILL_NOT_FOUND") return res.status(404).json({ error: "Bill not found" });
+    if (error instanceof Error && error.message === "BILL_CANCELLED") return res.status(409).json({ error: "Cannot pay a cancelled bill" });
+    if (error instanceof Error && error.message === "PAYMENT_EXCEEDS_BILL") return res.status(422).json({ error: "Payment exceeds bill amount" });
     console.error("Error recording payment:", error);
     res.status(500).json({ error: "Internal server error" });
   }
@@ -348,7 +352,7 @@ purchaseBillsRouter.post("/:id/pay", async (req: AuthedRequest, res) => {
 // Cancel bill
 purchaseBillsRouter.post("/:id/cancel", async (req: AuthedRequest, res) => {
   try {
-    const bill = await prisma.purchaseBill.findUnique({ where: { id: req.params.id } });
+    const bill = await prisma.purchaseBill.findFirst({ where: { id: req.params.id, businessId: req.businessId } });
     if (!bill || bill.businessId !== req.businessId) {
       return res.status(404).json({ error: "Bill not found" });
     }
@@ -357,32 +361,16 @@ purchaseBillsRouter.post("/:id/cancel", async (req: AuthedRequest, res) => {
       return res.status(400).json({ error: "Bill already cancelled" });
     }
 
-    // Reverse stock movements
-    const billItems = await prisma.purchaseBillItem.findMany({ where: { billId: req.params.id } });
-    for (const item of billItems) {
-      if (item.itemId) {
-        await prisma.item.update({
-          where: { id: item.itemId },
-          data: { currentStock: { decrement: item.quantity } },
-        });
-
-        await prisma.stockMovement.create({
-          data: {
-            businessId: req.businessId!,
-            itemId: item.itemId,
-            change: -item.quantity,
-            reason: "RETURN",
-            refId: req.params.id,
-            note: `Bill #${bill.number} cancelled`,
-          },
-        });
+    const updated = await prisma.$transaction(async (tx) => {
+      const billItems = await tx.purchaseBillItem.findMany({ where: { billId: bill.id } });
+      for (const item of billItems) {
+        if (!item.itemId) continue;
+        const decremented = await tx.item.updateMany({ where: { id: item.itemId, businessId: req.businessId, currentStock: { gte: item.quantity } }, data: { currentStock: { decrement: item.quantity } } });
+        if (decremented.count !== 1) throw new Error("CANCEL_STOCK_CONFLICT");
+        await tx.stockMovement.create({ data: { businessId: req.businessId!, itemId: item.itemId, change: -item.quantity, reason: "RETURN", refId: bill.id, note: `Bill #${bill.number} cancelled` } });
       }
-    }
-
-    const updated = await prisma.purchaseBill.update({
-      where: { id: req.params.id },
-      data: { status: "CANCELLED" },
-    });
+      return tx.purchaseBill.update({ where: { id: bill.id }, data: { status: "CANCELLED" } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     await writeAudit({
       businessId: req.businessId!,
@@ -395,6 +383,7 @@ purchaseBillsRouter.post("/:id/cancel", async (req: AuthedRequest, res) => {
 
     res.json(updated);
   } catch (error) {
+    if (error instanceof Error && error.message === "CANCEL_STOCK_CONFLICT") return res.status(409).json({ error: "Cannot cancel bill because current stock is lower than the bill quantity" });
     console.error("Error cancelling bill:", error);
     res.status(500).json({ error: "Internal server error" });
   }

@@ -83,7 +83,11 @@ router.get("/:id", async (req: AuthedRequest, res: Response) => {
       return res.status(404).json({ error: "Business not found" });
     }
 
-    res.json(business);
+    res.json({
+      ...business,
+      bankAccountNumber: business.bankAccountNumber ? `****${business.bankAccountNumber.slice(-4)}` : null,
+      ifscCode: business.ifscCode ? "***********" : null,
+    });
   } catch (error) {
     console.error("Error fetching business:", error);
     res.status(500).json({ error: "Internal server error" });

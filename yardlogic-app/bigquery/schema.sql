@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.customers` (
   phone            STRING,
   email            STRING,
   gstin            STRING,
+  state_code       STRING,
   address          STRING,
   opening_balance  FLOAT64 DEFAULT 0,
   credit_limit     FLOAT64,          -- dealer/distributor credit limit
@@ -156,12 +157,16 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.invoices` (
   customer_name   STRING,
   customer_phone  STRING,
   customer_email  STRING,
+  place_of_supply_state_code STRING,
   number          STRING NOT NULL,
   type            STRING DEFAULT 'GST' NOT NULL,
   status          STRING DEFAULT 'UNPAID' NOT NULL,
   sub_total       FLOAT64 NOT NULL,
   discount        FLOAT64 DEFAULT 0,
   tax_total       FLOAT64 DEFAULT 0,
+  cgst_total      FLOAT64 DEFAULT 0,
+  sgst_total      FLOAT64 DEFAULT 0,
+  igst_total      FLOAT64 DEFAULT 0,
   grand_total     FLOAT64 NOT NULL,
   amount_paid     FLOAT64 DEFAULT 0,
   follow_up_date  TIMESTAMP,
@@ -174,6 +179,8 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.invoices` (
   e_invoice_irn   STRING,
   is_e_way_bill   BOOL DEFAULT FALSE,
   is_rcm          BOOL DEFAULT FALSE,   -- reverse charge — buyer pays GST directly
+  locked_at       TIMESTAMP,
+  lock_reason     STRING,
   tcs_amount      FLOAT64 DEFAULT 0,    -- tax collected at source (dealer sales)
   vehicle_number  STRING,               -- cement/bulk-dispatch vertical
   transporter_id  STRING,
@@ -192,6 +199,10 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.invoice_items` (
   unit_price  FLOAT64 NOT NULL,
   discount    FLOAT64 DEFAULT 0,
   tax_rate    FLOAT64 DEFAULT 0,
+  hsn_code    STRING,
+  cgst_amount FLOAT64 DEFAULT 0,
+  sgst_amount FLOAT64 DEFAULT 0,
+  igst_amount FLOAT64 DEFAULT 0,
   line_total  FLOAT64 NOT NULL
 )
 CLUSTER BY invoice_id;
@@ -227,6 +238,9 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.purchase_bill_items` (
   unit_price  FLOAT64 NOT NULL,
   discount    FLOAT64 DEFAULT 0,
   tax_rate    FLOAT64 DEFAULT 0,
+  hsn_code    STRING,
+  itc_eligible BOOL DEFAULT TRUE,
+  itc_blocked_reason STRING,
   line_total  FLOAT64 NOT NULL
 )
 CLUSTER BY bill_id;
@@ -600,3 +614,203 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.sync_events` (
 )
 PARTITION BY DATE(created_at)
 CLUSTER BY business_id, status;
+
+-- ---------- Extended ERP and AI modules ----------
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.product_categories` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  name STRING NOT NULL,
+  parent_id STRING,
+  created_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, parent_id;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.stock_reservations` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  item_id STRING NOT NULL,
+  warehouse_id STRING,
+  quantity FLOAT64 NOT NULL,
+  entity_type STRING,
+  entity_id STRING,
+  created_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, item_id;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.stock_ledger_entries` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  item_id STRING NOT NULL,
+  warehouse_id STRING,
+  quantity FLOAT64 NOT NULL,
+  unit_cost FLOAT64 DEFAULT 0,
+  reason STRING NOT NULL,
+  reference_type STRING,
+  reference_id STRING,
+  note STRING,
+  created_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, item_id;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.stock_audits` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  warehouse_id STRING,
+  item_id STRING NOT NULL,
+  counted_qty FLOAT64 NOT NULL,
+  system_qty FLOAT64 NOT NULL,
+  variance FLOAT64 NOT NULL,
+  status STRING DEFAULT 'PENDING' NOT NULL,
+  note STRING,
+  created_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, status;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.recurring_invoices` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  customer_id STRING,
+  number STRING NOT NULL,
+  frequency STRING NOT NULL,
+  next_run_at TIMESTAMP NOT NULL,
+  status STRING DEFAULT 'ACTIVE' NOT NULL,
+  note STRING,
+  created_at TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, status;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.recurring_invoice_items` (
+  id STRING NOT NULL,
+  recurring_invoice_id STRING NOT NULL,
+  item_id STRING,
+  name STRING NOT NULL,
+  quantity FLOAT64 NOT NULL,
+  unit_price FLOAT64 NOT NULL,
+  tax_rate FLOAT64 DEFAULT 0,
+  line_total FLOAT64 NOT NULL
+)
+CLUSTER BY recurring_invoice_id;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.currency_rates` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  base STRING DEFAULT 'INR' NOT NULL,
+  target STRING NOT NULL,
+  rate FLOAT64 NOT NULL,
+  as_of TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(as_of)
+CLUSTER BY business_id, target;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.staff_attendance` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  user_id STRING NOT NULL,
+  date DATE NOT NULL,
+  check_in TIMESTAMP,
+  check_out TIMESTAMP,
+  status STRING DEFAULT 'PRESENT' NOT NULL,
+  note STRING,
+  created_at TIMESTAMP NOT NULL
+)
+PARTITION BY date
+CLUSTER BY business_id, user_id;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.commission_entries` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  user_id STRING NOT NULL,
+  customer_id STRING,
+  invoice_id STRING,
+  amount FLOAT64 NOT NULL,
+  commission FLOAT64 NOT NULL,
+  status STRING DEFAULT 'PENDING' NOT NULL,
+  created_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, user_id;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.tds_entries` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  vendor_id STRING,
+  type STRING NOT NULL,
+  section STRING,
+  amount FLOAT64 NOT NULL,
+  rate FLOAT64,
+  deduction_date TIMESTAMP,
+  reference STRING,
+  created_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, type;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.fixed_assets` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  name STRING NOT NULL,
+  category STRING,
+  purchase_date TIMESTAMP,
+  cost FLOAT64 NOT NULL,
+  salvage_value FLOAT64 DEFAULT 0,
+  useful_life_years INT64,
+  depreciation_method STRING,
+  status STRING DEFAULT 'ACTIVE' NOT NULL,
+  created_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, status;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.fixed_asset_depreciation` (
+  id STRING NOT NULL,
+  asset_id STRING NOT NULL,
+  period STRING NOT NULL,
+  amount FLOAT64 NOT NULL,
+  created_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY asset_id, period;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.customer_portal_sessions` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  customer_id STRING,
+  token STRING NOT NULL,
+  expires_at TIMESTAMP NOT NULL,
+  created_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, customer_id;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.ai_insights` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  type STRING NOT NULL,
+  title STRING NOT NULL,
+  message STRING NOT NULL,
+  score FLOAT64 DEFAULT 0,
+  action_url STRING,
+  created_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, type;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.sales_forecasts` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  item_id STRING,
+  forecast_date TIMESTAMP NOT NULL,
+  predicted_quantity FLOAT64 NOT NULL,
+  confidence FLOAT64,
+  method STRING,
+  created_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, forecast_date;
