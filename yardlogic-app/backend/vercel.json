@@ -1,5 +1,6 @@
 {
   "version": 2,
+  "buildCommand": "npm run prisma:deploy && npm run build",
   "routes": [{ "src": "/(.*)", "dest": "api/index.ts" }],
   "functions": {
     "api/index.ts": { "maxDuration": 60 }

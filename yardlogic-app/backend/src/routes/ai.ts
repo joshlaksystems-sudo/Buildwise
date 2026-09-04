@@ -60,7 +60,7 @@ aiRouter.post("/categorize-expense", async (req: AuthedRequest, res) => {
   try {
     const parsed = ocrSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-    if (process.env.VERTEX_AI_ENABLE !== "true") return res.status(503).json({ error: "Vertex AI is not enabled" });
+    if (process.env.VERTEX_AI_ENABLE !== "true") return res.status(503).json({ error: "AI categorization is disabled. Set VERTEX_AI_ENABLE=true in the backend environment." });
 
     const result = await withAICredit(req.businessId!, req.userId!, "categorizeExpense", async () => {
       return categorizeExpenseWithVertexAI(parsed.data.rawText);
@@ -86,7 +86,11 @@ aiRouter.post("/categorize-expense", async (req: AuthedRequest, res) => {
   } catch (error) {
     if (error instanceof AICreditExhaustedError) return res.status(402).json({ error: error.message, balance: error.balance, required: error.required });
     console.error("Error categorizing expense:", error);
-    res.status(500).json({ error: "Failed to categorize expense" });
+    const message = error instanceof Error ? error.message : String(error);
+    if (/not initialized|disabled|not configured|credentials|API key/i.test(message)) {
+      return res.status(503).json({ error: "AI categorization is not configured on the backend.", details: message });
+    }
+    res.status(502).json({ error: "AI provider could not categorize this expense. Enter it manually and try again.", details: message });
   }
 });
 

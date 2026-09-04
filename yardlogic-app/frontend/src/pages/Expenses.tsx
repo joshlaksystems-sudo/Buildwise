@@ -63,27 +63,25 @@ export function Expenses() {
   };
 
   async function categorize() {
-    if (!receiptText && !imageFile) {
+    if (!receiptText.trim() && !imageFile) {
       alert("Please enter receipt text or upload an image");
+      return;
+    }
+    if (!receiptText.trim() && imageFile) {
+      alert("Image OCR is not enabled yet. Please paste the receipt text before categorizing.");
       return;
     }
 
     setCategorizing(true);
     setLastResult(null);
     try {
-      let textToProcess = receiptText;
-
-      // If image is uploaded, we would normally use OCR here
-      // For now, we'll just use the text. In production, integrate with Tesseract or Google Vision API
-      if (imageFile && !receiptText) {
-        textToProcess = "[Image uploaded - please add receipt text or implement OCR]";
-      }
+      const textToProcess = receiptText.trim();
 
       const res = await api<any>("/ai/categorize-expense", {
         method: "POST",
         body: JSON.stringify({
           rawText: textToProcess,
-          imageUrl: imagePreview || undefined,
+          imageUrl: undefined,
         }),
       });
 
@@ -99,7 +97,8 @@ export function Expenses() {
       refresh();
     } catch (error) {
       console.error("Error categorizing expense:", error);
-      alert("Failed to categorize expense");
+      const message = error instanceof Error ? error.message : "AI categorization failed. Enter the expense manually and try again.";
+      alert(message);
     } finally {
       setCategorizing(false);
     }
