@@ -242,7 +242,9 @@ jobs:
       - name: Check deployed backend health
         run: |
           set -euo pipefail
-          health_url="$BACKEND_DEPLOYMENT_URL/health"
+          # Deployment URLs can be protected or return 405 while Vercel is
+          # finalizing them. Probe the stable public alias used by the frontend.
+          health_url="https://yardlogic-backend.vercel.app/health"
           response="$(curl --fail --silent --show-error --location \
             --retry 3 --retry-delay 2 --max-time 30 \
             -H 'Accept: application/json' \
