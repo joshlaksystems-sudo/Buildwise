@@ -667,10 +667,44 @@ export async function scanDocumentForMalware(buffer: Buffer, fileName: string) {
   }
 }
 
-function parseVertexJson<T>(text: string): T {
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error("Vertex AI did not return structured JSON");
-  return JSON.parse(jsonMatch[0]) as T;
+export function parseVertexJson<T>(text: string): T {
+  const source = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      continue;
+    }
+    if (character === "{" && start === -1) {
+      start = index;
+      depth = 1;
+      continue;
+    }
+    if (start !== -1 && character === "{") depth += 1;
+    if (start !== -1 && character === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        try {
+          return JSON.parse(source.slice(start, index + 1)) as T;
+        } catch {
+          throw new Error("Vertex AI returned malformed structured JSON");
+        }
+      }
+    }
+  }
+
+  throw new Error("Vertex AI did not return structured JSON");
 }
 
 // Check if subscription is active (required for Vertex AI)
