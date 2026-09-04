@@ -814,3 +814,120 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.sales_forecasts` (
 )
 PARTITION BY DATE(created_at)
 CLUSTER BY business_id, forecast_date;
+-- ---------- Auth, AI wallet, approvals, notifications ----------
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.otps` (
+  id STRING NOT NULL,
+  target STRING NOT NULL,
+  code STRING NOT NULL,
+  expires_at TIMESTAMP NOT NULL,
+  consumed BOOL DEFAULT FALSE NOT NULL,
+  created_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY target, consumed;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.ai_wallets` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  balance NUMERIC(12, 2) DEFAULT 0 NOT NULL,
+  created_at TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.ai_wallet_transactions` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  wallet_id STRING NOT NULL,
+  amount NUMERIC(12, 2) NOT NULL,
+  type STRING NOT NULL,
+  operation STRING NOT NULL,
+  provider STRING,
+  external_id STRING,
+  idempotency_key STRING,
+  created_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, wallet_id;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.ai_daily_usages` (
+  id STRING NOT NULL,
+  user_id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  usage_date DATE NOT NULL,
+  free_tokens_used INT64 DEFAULT 0 NOT NULL,
+  free_chats_used INT64 DEFAULT 0 NOT NULL,
+  created_at TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP NOT NULL
+)
+PARTITION BY usage_date
+CLUSTER BY business_id, user_id;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.stock_transfers` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  source_warehouse_id STRING NOT NULL,
+  destination_warehouse_id STRING NOT NULL,
+  number STRING NOT NULL,
+  status STRING DEFAULT 'DRAFT' NOT NULL,
+  created_at TIMESTAMP NOT NULL,
+  completed_at TIMESTAMP
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, status;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.stock_transfer_items` (
+  id STRING NOT NULL,
+  transfer_id STRING NOT NULL,
+  item_id STRING NOT NULL,
+  quantity FLOAT64 NOT NULL
+)
+CLUSTER BY transfer_id, item_id;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.approval_requests` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  requested_by_user_id STRING NOT NULL,
+  reviewed_by_user_id STRING,
+  entity_type STRING NOT NULL,
+  entity_id STRING NOT NULL,
+  status STRING DEFAULT 'PENDING' NOT NULL,
+  note STRING,
+  reviewed_at TIMESTAMP,
+  created_at TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, status;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.notifications` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  user_id STRING,
+  type STRING NOT NULL,
+  title STRING NOT NULL,
+  message STRING NOT NULL,
+  entity_type STRING,
+  entity_id STRING,
+  is_read BOOL DEFAULT FALSE NOT NULL,
+  read_at TIMESTAMP,
+  created_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, is_read;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.notification_preferences` (
+  id STRING NOT NULL,
+  business_id STRING NOT NULL,
+  user_id STRING NOT NULL,
+  low_stock_alert BOOL DEFAULT TRUE NOT NULL,
+  overdue_alert BOOL DEFAULT TRUE NOT NULL,
+  payment_alert BOOL DEFAULT TRUE NOT NULL,
+  daily_digest BOOL DEFAULT FALSE NOT NULL,
+  created_at TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP NOT NULL
+)
+CLUSTER BY business_id, user_id;
+
