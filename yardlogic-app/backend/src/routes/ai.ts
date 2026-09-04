@@ -87,7 +87,7 @@ aiRouter.post("/categorize-expense", async (req: AuthedRequest, res) => {
     if (error instanceof AICreditExhaustedError) return res.status(402).json({ error: error.message, balance: error.balance, required: error.required });
     console.error("Error categorizing expense:", error);
     const message = error instanceof Error ? error.message : String(error);
-    if (/not initialized|disabled|not configured|credentials|API key/i.test(message)) {
+    if (/not initialized|disabled|not configured|credentials|API key|404|NOT_FOUND|model.*not found/i.test(message)) {
       return res.status(503).json({ error: "AI categorization is not configured on the backend.", details: message });
     }
     res.status(502).json({ error: "AI provider could not categorize this expense. Enter it manually and try again.", details: message });
