@@ -130,6 +130,14 @@ You'll need a Postgres instance — either local or something like Neon/
 Supabase for a free hosted one. `ANTHROPIC_API_KEY` is only required for
 the `/ai/*` endpoints; everything else works without it.
 
+For an existing production database, deploy checked-in migrations before
+the new backend code serves traffic:
+
+```bash
+cd backend
+npm run prisma:deploy
+```
+
 Uploaded compliance documents are validated before storage and AI
 processing. For production, install ClamAV and set
 `MALWARE_SCAN_ENABLED=true` and `MALWARE_SCAN_REQUIRED=true`; when required,
