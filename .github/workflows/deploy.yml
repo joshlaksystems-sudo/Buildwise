@@ -285,7 +285,7 @@ jobs:
 
       - name: Type-check & build
         env:
-          VITE_API_URL: ${{ needs.backend.outputs.deployment_url }}
+          VITE_API_URL: https://yardlogic-backend.vercel.app
           VITE_COMPANY_NAME: ${{ secrets.VITE_COMPANY_NAME }}
           VITE_PRODUCT_NAME: ${{ secrets.VITE_PRODUCT_NAME }}
           VITE_GCS_BUCKET: ${{ secrets.VITE_GCS_BUCKET }}
@@ -301,7 +301,7 @@ jobs:
             --token="${{ secrets.VERCEL_TOKEN }}" \
             --scope="${{ secrets.VERCEL_ORG_ID }}" \
             --project="${{ secrets.VERCEL_FRONTEND_PROJECT_ID }}" \
-            --build-env "VITE_API_URL=${{ needs.backend.outputs.deployment_url }}" \
+            --build-env "VITE_API_URL=https://yardlogic-backend.vercel.app" \
             --build-env "VITE_COMPANY_NAME=${{ secrets.VITE_COMPANY_NAME }}" \
             --build-env "VITE_PRODUCT_NAME=${{ secrets.VITE_PRODUCT_NAME }}" \
             --build-env "VITE_GCS_BUCKET=${{ secrets.VITE_GCS_BUCKET }}" \
