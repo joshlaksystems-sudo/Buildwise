@@ -6,6 +6,7 @@ import { prisma } from "../lib/prisma";
 import { AuthedRequest, requireAuth } from "../middleware/auth";
 import {
   categorizeExpenseWithVertexAI,
+  googleCloudStatus,
   isSubscriptionActive,
   generateReportWithVertexAI,
   getInvoiceInsightsWithVertexAI,
@@ -98,13 +99,15 @@ aiRouter.post("/categorize-expense", aiDocumentUpload.single("file"), async (req
     if (error instanceof AICreditExhaustedError) return res.status(402).json({ error: error.message, balance: error.balance, required: error.required });
     console.error("Error categorizing expense:", error);
     const message = error instanceof Error ? error.message : String(error);
-    if (/not initialized|disabled|not configured|credentials|API key|404|NOT_FOUND|model.*not found/i.test(message)) {
-      return res.status(503).json({ error: "AI categorization is not configured on the backend.", details: message });
+    const cloudStatus = googleCloudStatus();
+    if (!cloudStatus.vertexAIInitialized && !process.env.GEMINI_API_KEY) {
+      return res.status(503).json({ error: "AI provider is not configured. Configure Vertex AI credentials or GEMINI_API_KEY on the backend." });
     }
     res.status(502).json({
-      error: process.env.GEMINI_API_KEY
-        ? "AI provider is temporarily unavailable. Check the receipt and try again."
-        : "AI provider is not configured. Add GEMINI_API_KEY or valid Vertex AI credentials to the backend environment.",
+      error: "Vertex AI could not process this document. Check the configured model, region, API access, quota, and document format, then try again.",
+      provider: "vertex-ai",
+      model: cloudStatus.vertexModel,
+      location: cloudStatus.location,
       details: process.env.NODE_ENV === "production" ? undefined : message,
     });
   }

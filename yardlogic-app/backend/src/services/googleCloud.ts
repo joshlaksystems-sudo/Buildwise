@@ -92,6 +92,7 @@ export function googleCloudStatus() {
     storageInitialized: Boolean(storage),
     vertexAIInitialized: Boolean(vertexAI),
     vertexAIEnabled: process.env.VERTEX_AI_ENABLE === "true",
+    vertexModel: vertexModelId(),
     dataset,
     location,
   };
