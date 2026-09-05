@@ -57,7 +57,9 @@ function withGeminiFallback(primary: any): any {
           if (!model) return geminiRequest(input, options.systemInstruction);
           return model.generateContent(input).catch((error: unknown) => {
             const message = error instanceof Error ? error.message : String(error);
-            if (message.includes("403") || message.includes("SERVICE_DISABLED") || message.includes("PERMISSION_DENIED")) {
+            const canUseFallback = Boolean(process.env.GEMINI_API_KEY);
+            const shouldFallback = /400|401|403|404|408|429|500|502|503|504|SERVICE_DISABLED|PERMISSION_DENIED|RESOURCE_EXHAUSTED|UNAVAILABLE|NOT_FOUND|model.*not found|location/i.test(message);
+            if (canUseFallback && shouldFallback) {
               console.warn("Vertex AI unavailable; using Gemini API fallback.");
               return geminiRequest(input, options.systemInstruction);
             }

@@ -241,6 +241,11 @@ curl -H "Authorization: Bearer $TOKEN" \
   -H "X-Business-Id: [BUSINESS_ID]" \
   http://localhost:4000/expenses
 
+# If Vertex AI returns a model, region, quota, or permission error and
+# GEMINI_API_KEY is configured, the backend retries through Gemini API.
+# This endpoint returns non-secret readiness data:
+curl http://localhost:4000/health/google-cloud
+
 # Supplier invoices are reviewed through the Purchase Bills page. Upload the
 # PDF/image, match every extracted line to an inventory item, and save only
 # after all lines are linked; the save transaction then increments stock.

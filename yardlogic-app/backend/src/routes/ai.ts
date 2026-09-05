@@ -91,7 +91,12 @@ aiRouter.post("/categorize-expense", aiDocumentUpload.single("file"), async (req
     if (/not initialized|disabled|not configured|credentials|API key|404|NOT_FOUND|model.*not found/i.test(message)) {
       return res.status(503).json({ error: "AI categorization is not configured on the backend.", details: message });
     }
-    res.status(502).json({ error: "AI provider could not categorize this expense. Enter it manually and try again.", details: message });
+    res.status(502).json({
+      error: process.env.GEMINI_API_KEY
+        ? "AI provider is temporarily unavailable. Check the receipt and try again."
+        : "AI provider is not configured. Add GEMINI_API_KEY or valid Vertex AI credentials to the backend environment.",
+      details: process.env.NODE_ENV === "production" ? undefined : message,
+    });
   }
 });
 
