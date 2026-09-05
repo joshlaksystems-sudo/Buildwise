@@ -16,6 +16,8 @@ jobs:
   backend:
     name: Backend — migrate Neon, verify BigQuery, deploy to Vercel
     runs-on: ubuntu-latest
+    outputs:
+      deployment_url: ${{ steps.deploy-backend.outputs.deployment_url }}
     defaults:
       run:
         working-directory: yardlogic-app/backend
@@ -146,6 +148,7 @@ jobs:
         run: rm -rf .vercel
 
       - name: Deploy backend to Vercel
+        id: deploy-backend
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
@@ -238,13 +241,12 @@ jobs:
           fi
           echo "Backend deployment created: $backend_deployment_url"
           echo "BACKEND_DEPLOYMENT_URL=$backend_deployment_url" >> "$GITHUB_ENV"
+          echo "deployment_url=$backend_deployment_url" >> "$GITHUB_OUTPUT"
 
       - name: Check deployed backend health
         run: |
           set -euo pipefail
-          # Deployment URLs can be protected or return 405 while Vercel is
-          # finalizing them. Probe the stable public alias used by the frontend.
-          health_url="https://yardlogic-backend.vercel.app/health"
+          health_url="${BACKEND_DEPLOYMENT_URL}/health"
           response="$(curl --fail --silent --show-error --location \
             --retry 3 --retry-delay 2 --max-time 30 \
             -H 'Accept: application/json' \
@@ -252,8 +254,9 @@ jobs:
             echo "Backend health request failed: $health_url"
             exit 1
           }
-          if ! printf '%s' "$response" | jq -e '.ok == true' > /dev/null; then
-            echo "Backend health response was not {\"ok\":true}: $response"
+          if ! printf '%s' "$response" | jq -e '.ok == true' > /dev/null 2>&1; then
+            echo "Backend health response was not JSON {\"ok\":true} from $health_url"
+            printf '%s\n' "$response" | head -c 1000
             exit 1
           fi
           echo "Backend health check passed: $health_url"
@@ -279,7 +282,7 @@ jobs:
 
       - name: Type-check & build
         env:
-          VITE_API_URL: https://yardlogic-backend.vercel.app
+          VITE_API_URL: ${{ needs.backend.outputs.deployment_url }}
           VITE_COMPANY_NAME: ${{ secrets.VITE_COMPANY_NAME }}
           VITE_PRODUCT_NAME: ${{ secrets.VITE_PRODUCT_NAME }}
           VITE_GCS_BUCKET: ${{ secrets.VITE_GCS_BUCKET }}
@@ -295,7 +298,7 @@ jobs:
             --token="${{ secrets.VERCEL_TOKEN }}" \
             --scope="${{ secrets.VERCEL_ORG_ID }}" \
             --project="${{ secrets.VERCEL_FRONTEND_PROJECT_ID }}" \
-            --build-env "VITE_API_URL=https://yardlogic-backend.vercel.app" \
+            --build-env "VITE_API_URL=${{ needs.backend.outputs.deployment_url }}" \
             --build-env "VITE_COMPANY_NAME=${{ secrets.VITE_COMPANY_NAME }}" \
             --build-env "VITE_PRODUCT_NAME=${{ secrets.VITE_PRODUCT_NAME }}" \
             --build-env "VITE_GCS_BUCKET=${{ secrets.VITE_GCS_BUCKET }}" \
