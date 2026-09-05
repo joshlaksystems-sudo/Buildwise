@@ -32,8 +32,8 @@ layer Vyapar doesn't have) is done and working.
   once marked delivered
 - **Customers & suppliers** — contact management, opening balances
 - **Expenses** — manual entry, plus AI-powered categorization from
-  pasted text or PDF/image receipts; selecting several receipts creates
-  one reviewed expense per file and repeated files are idempotent
+  pasted text or PDF/image receipts; Vertex AI splits expense tables into
+  separate reviewed entries, while repeated files and retries are idempotent
 - **Supplier invoice intake** — upload a supplier PDF/image from Purchase
   Bills, review the extracted supplier invoice and item lines, link each
   line to inventory, then save once to create the purchase bill and update

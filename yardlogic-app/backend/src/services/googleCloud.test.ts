@@ -28,3 +28,10 @@ test("parses fenced JSON with nested data and trailing commentary", () => {
   assert.equal(result.extractedData.vendor, "ACME {India}");
   assert.equal(result.reasoning, "done");
 });
+
+test("parses a multi-expense Vertex response", () => {
+  const result = parseVertexJson<{ expenses: Array<{ amount: number }> }>(
+    '{"expenses":[{"amount":4500},{"amount":12000}]}'
+  );
+  assert.deepEqual(result.expenses.map((expense) => expense.amount), [4500, 12000]);
+});

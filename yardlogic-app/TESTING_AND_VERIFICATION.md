@@ -218,6 +218,13 @@ several receipt files to create one expense preview per file. Selecting the
 same file more than once, or confirming the same preview again, must not
 create another database row.
 
+For one image/PDF containing a table of expenses, Vertex AI returns one
+preview per distinct row. Headers, blank rows, subtotals, tax-only rows, and
+repeated OCR text are ignored. A normal itemized shopping receipt remains one
+expense for its receipt total unless the document clearly labels its lines as
+separate expenses. Unreadable rows are omitted for review instead of being
+invented.
+
 ```bash
 # Text-based receipt
 curl -X POST http://localhost:4000/ai/categorize-expense \

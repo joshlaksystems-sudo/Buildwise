@@ -27,11 +27,14 @@ interface ExpensePreview extends CategorizeResult {
   fileName: string;
 }
 
-async function getExpenseRequestId(file: File | null, receiptText: string) {
+async function getExpenseRequestId(file: File | null, receiptText: string, lineIndex: number, expense: CategorizeResult) {
   const source = file ? await file.arrayBuffer() : new TextEncoder().encode(receiptText).buffer;
-  const digest = await crypto.subtle.digest("SHA-256", source);
-  const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `receipt-${hash}`;
+  const sourceDigest = await crypto.subtle.digest("SHA-256", source);
+  const line = new TextEncoder().encode(`${lineIndex}|${expense.category}|${expense.amount}|${expense.taxAmount}|${expense.vendor || ""}`);
+  const lineDigest = await crypto.subtle.digest("SHA-256", line);
+  const sourceHash = Array.from(new Uint8Array(sourceDigest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const lineHash = Array.from(new Uint8Array(lineDigest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `receipt-${sourceHash}-${lineHash}`.slice(0, 120);
 }
 
 export function Expenses() {
@@ -93,13 +96,12 @@ export function Expenses() {
         form.append("rawText", receiptText.trim());
         if (file) form.append("file", file);
         const res = await api<any>("/ai/categorize-expense", { method: "POST", body: form });
-        const id = await getExpenseRequestId(file, receiptText.trim());
-        nextPreviews.push({
-          id,
-          fileName: file?.name || "Pasted receipt",
-          ...res.preview,
-          reasoning: res.aiReasoning,
-        });
+        const results: CategorizeResult[] = res.previews || (res.preview ? [res.preview] : []);
+        if (!results.length) throw new Error("Vertex AI did not return any expenses from this document");
+        for (const [lineIndex, result] of results.entries()) {
+          const id = await getExpenseRequestId(file, receiptText.trim(), lineIndex, result);
+          nextPreviews.push({ id, fileName: file?.name || "Pasted receipt", ...result });
+        }
       }
       setPreviews((current) => [...current, ...nextPreviews]);
       setReceiptText("");

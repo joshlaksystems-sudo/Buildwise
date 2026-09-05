@@ -60,6 +60,7 @@ const aiExpenseResultSchema = z.object({
   confidence: z.number().min(0).max(1),
   reasoning: z.string().max(1000),
 });
+const aiExpenseResultsSchema = z.array(aiExpenseResultSchema).min(1).max(100);
 
 aiRouter.post("/categorize-expense", aiDocumentUpload.single("file"), async (req: AuthedRequest, res) => {
   try {
@@ -78,12 +79,21 @@ aiRouter.post("/categorize-expense", aiDocumentUpload.single("file"), async (req
     const result = await withAICredit(req.businessId!, req.userId!, "categorizeExpense", async () => {
       return categorizeExpenseWithVertexAI(parsed.data.rawText, document);
     });
-    const validatedResult = aiExpenseResultSchema.safeParse(result);
+    // Accept the old single-object response during rolling deployments, but
+    // always return an array to the frontend.
+    const candidateResults = Array.isArray(result) ? result : [result];
+    const validatedResult = aiExpenseResultsSchema.safeParse(candidateResults);
     if (!validatedResult.success) {
       return res.status(422).json({ error: "AI could not reliably read this receipt. Please enter the expense manually.", details: validatedResult.error.flatten() });
     }
 
-    res.json({ preview: validatedResult.data, aiReasoning: validatedResult.data.reasoning, sourceFileName: req.file?.originalname ?? null });
+    res.json({
+      previews: validatedResult.data,
+      // Keep preview for clients from the previous release.
+      preview: validatedResult.data[0],
+      aiReasoning: validatedResult.data.map((entry) => entry.reasoning).join(" "),
+      sourceFileName: req.file?.originalname ?? null,
+    });
   } catch (error) {
     if (error instanceof AICreditExhaustedError) return res.status(402).json({ error: error.message, balance: error.balance, required: error.required });
     console.error("Error categorizing expense:", error);

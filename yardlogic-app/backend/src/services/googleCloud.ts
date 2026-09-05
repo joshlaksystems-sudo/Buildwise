@@ -720,7 +720,7 @@ export async function isSubscriptionActive(businessId: string): Promise<boolean>
 }
 
 // Categorize expense using Vertex AI (Gemini)
-export async function categorizeExpenseWithVertexAI(receiptText: string, document?: { buffer: Buffer; mimeType: string }): Promise<AIExpenseResult> {
+export async function categorizeExpenseWithVertexAI(receiptText: string, document?: { buffer: Buffer; mimeType: string }): Promise<AIExpenseResult[]> {
   try {
     if (!vertexAI) {
       throw new Error("Vertex AI is not initialized. Install @google-cloud/vertexai package.");
@@ -732,14 +732,15 @@ export async function categorizeExpenseWithVertexAI(receiptText: string, documen
 
     const model = vertexAI.getGenerativeModel({
       model: vertexModelId(),
-      systemInstruction: `You are an accounting assistant for Buildwise by JC Nexus. Given raw receipt text, extract:
-- Total amount
-- Tax amount (GST if present in India)
-- Vendor name if visible
-- Expense category from: Inventory Purchase, Rent, Utilities, Salaries, Transport, Office Supplies, Marketing, Repairs, Other
+      systemInstruction: `You are an accounting assistant for an Indian business. Read the entire uploaded image or PDF and the supplied text.
+    Return one expense object for every distinct expense row, receipt, or bill line that should become a separate accounting entry.
+    If the document is a table, each row is a separate expense. If it is one normal receipt with several purchased products, return one expense for the receipt total unless the text clearly labels the products as separate expenses.
+    Never create an entry for column headers, grand totals, subtotals, tax-only rows, blank rows, or repeated OCR text.
+    For each entry extract the amount paid for that entry, GST/tax amount, vendor, and category from: Inventory Purchase, Rent, Utilities, Salaries, Transport, Office Supplies, Marketing, Repairs, Other.
+    Do not invent unreadable values. Exclude a row if no reliable positive amount can be read. Keep each distinct row even when two rows have the same amount.
 
-Respond ONLY with valid JSON (no markdown, no preamble):
-{"category": string, "amount": number, "taxAmount": number, "vendor": string|null, "confidence": 0-1, "reasoning": string}`,
+    Respond ONLY with valid JSON (no markdown, no preamble) in this shape:
+    {"expenses":[{"category": string, "amount": number, "taxAmount": number, "vendor": string|null, "confidence": 0-1, "reasoning": string}]}`,
     });
 
     const input = [
@@ -754,7 +755,10 @@ Respond ONLY with valid JSON (no markdown, no preamble):
     }
 
     const text = content.text as string;
-    return parseVertexJson<AIExpenseResult>(text);
+    const parsed = parseVertexJson<AIExpenseResult[] | { expenses?: AIExpenseResult[] }>(text);
+    const results = Array.isArray(parsed) ? parsed : parsed.expenses;
+    if (!results?.length) throw new Error("Vertex AI did not find any separate expenses in the document");
+    return results.slice(0, 100);
   } catch (error) {
     console.error("❌ Error with Vertex AI:", error);
     throw error;
