@@ -32,7 +32,12 @@ layer Vyapar doesn't have) is done and working.
   once marked delivered
 - **Customers & suppliers** — contact management, opening balances
 - **Expenses** — manual entry, plus AI-powered categorization from
-  pasted/OCR'd receipt text
+  pasted text or PDF/image receipts; selecting several receipts creates
+  one reviewed expense per file and repeated files are idempotent
+- **Supplier invoice intake** — upload a supplier PDF/image from Purchase
+  Bills, review the extracted supplier invoice and item lines, link each
+  line to inventory, then save once to create the purchase bill and update
+  stock atomically
 - **Reports** — sales, GST collected, outstanding receivables, expense
   totals — all scoped to the active business only, same as every
   other route

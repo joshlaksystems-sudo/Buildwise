@@ -36,9 +36,28 @@ interface Supplier {
   phone?: string;
 }
 
+interface InventoryItem {
+  id: string;
+  name: string;
+}
+
+interface PurchasePreview {
+  supplierName: string | null;
+  supplierGstin: string | null;
+  billNumber: string | null;
+  billDate: string | null;
+  items: Array<{ name: string; quantity: number; unitPrice: number; taxRate: number; lineTotal: number }>;
+  subTotal: number;
+  taxTotal: number;
+  grandTotal: number;
+  confidence: number;
+  warnings: string[];
+}
+
 export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) => {
   const [bills, setBills] = useState<PurchaseBill[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [selectedBill, setSelectedBill] = useState<PurchaseBill | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -56,6 +75,9 @@ export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) 
     discount: 0,
     taxRate: 0,
   });
+  const [purchaseFile, setPurchaseFile] = useState<File | null>(null);
+  const [purchasePreview, setPurchasePreview] = useState<PurchasePreview | null>(null);
+  const [analyzingPurchase, setAnalyzingPurchase] = useState(false);
 
   const fetchBills = async () => {
     try {
@@ -80,8 +102,46 @@ export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) 
     }
   };
 
+  async function analyzePurchaseFile() {
+    if (!purchaseFile) return;
+    setAnalyzingPurchase(true);
+    try {
+      const form = new FormData();
+      form.append("file", purchaseFile);
+      const result = await api<{ extraction: PurchasePreview }>("/ai/extract-purchase-bill", { method: "POST", body: form });
+      setPurchasePreview(result.extraction);
+    } catch (requestError) {
+      alert(requestError instanceof Error ? requestError.message : "Unable to read supplier bill");
+    } finally {
+      setAnalyzingPurchase(false);
+    }
+  }
+
+  function applyPurchasePreview() {
+    if (!purchasePreview) return;
+    const supplier = suppliers.find((candidate) =>
+      purchasePreview.supplierName && candidate.name.toLowerCase().includes(purchasePreview.supplierName.toLowerCase())
+    );
+    setFormData((current) => ({
+      ...current,
+      supplierId: supplier?.id || current.supplierId,
+      referenceNumber: purchasePreview.billNumber || current.referenceNumber,
+    }));
+    setItems(purchasePreview.items.map((item) => {
+      const matched = inventory.find((candidate) => candidate.name.trim().toLowerCase() === item.name.trim().toLowerCase());
+      return { ...item, itemId: matched?.id || "", discount: 0, id: crypto.randomUUID() };
+    }));
+    setPurchasePreview(null);
+  }
+
+  const unmatchedItemCount = items.filter((item) => !item.itemId).length;
+
   useEffect(() => {
-    Promise.all([fetchBills(), fetchSuppliers()]);
+    Promise.all([
+      fetchBills(),
+      fetchSuppliers(),
+      api<InventoryItem[]>("/items").then(setInventory).catch(() => undefined),
+    ]);
   }, []);
 
   const handleSelectBill = async (bill: PurchaseBill) => {
@@ -103,6 +163,8 @@ export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) 
       setItems([]);
     }
     setNewItem({ itemId: "", name: "", quantity: 0, unitPrice: 0, discount: 0, taxRate: 0 });
+    setPurchaseFile(null);
+    setPurchasePreview(null);
     setShowForm(true);
   };
 
@@ -140,6 +202,10 @@ export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) 
     if (saving) return;
     if (!formData.supplierId || items.length === 0) {
       alert("Please select a supplier and add items");
+      return;
+    }
+    if (unmatchedItemCount > 0) {
+      alert("Link every supplier invoice item to an inventory item before saving so stock is updated correctly.");
       return;
     }
 
@@ -420,6 +486,26 @@ export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) 
           <div className="modal-content modal-large" onClick={(e) => e.stopPropagation()}>
             <h3>{formData.id ? "Edit Bill" : "Create Purchase Bill"}</h3>
 
+            {!formData.id && (
+              <div className="form-section">
+                <h4>Read supplier bill with AI</h4>
+                <p>Upload a PDF or image to prepare a draft. Stock changes only after you review and save the bill.</p>
+                <input type="file" accept=".pdf,application/pdf,image/jpeg,image/png" onChange={(event) => setPurchaseFile(event.target.files?.[0] || null)} disabled={analyzingPurchase} />
+                <button className="btn-secondary" onClick={() => void analyzePurchaseFile()} disabled={!purchaseFile || analyzingPurchase}>
+                  {analyzingPurchase ? "Reading bill..." : "Preview bill with AI"}
+                </button>
+                {purchasePreview && (
+                  <div className="result-box">
+                    <strong>Preview: {purchasePreview.supplierName || "Supplier not detected"}</strong>
+                    <p>Bill {purchasePreview.billNumber || "number not detected"} · ₹{purchasePreview.grandTotal.toLocaleString("en-IN")} · {(purchasePreview.confidence * 100).toFixed(0)}% confidence</p>
+                    <p>{purchasePreview.items.length} item{purchasePreview.items.length === 1 ? "" : "s"} detected. Review supplier and item links below.</p>
+                    {purchasePreview.warnings.length > 0 && <p className="warning">Warnings: {purchasePreview.warnings.join("; ")}</p>}
+                    <button className="btn-primary" onClick={applyPurchasePreview}>Use this preview in bill</button>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="form-group">
               <label>Supplier *</label>
               <select
@@ -515,7 +601,9 @@ export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) 
               </div>
 
               {items.length > 0 && (
-                <table className="form-items-table">
+                <>
+                  {unmatchedItemCount > 0 && <p className="warning">{unmatchedItemCount} item{unmatchedItemCount === 1 ? " is" : "s are"} not linked to inventory. Link each item before saving to post stock.</p>}
+                  <table className="form-items-table">
                   <thead>
                     <tr>
                       <th>Name</th>
@@ -543,7 +631,8 @@ export const PurchaseBills: React.FC<{ businessId: string }> = ({ businessId }) 
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                  </table>
+                </>
               )}
             </div>
 

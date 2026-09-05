@@ -700,6 +700,7 @@ model Expense {
   note                 String?
   sourceImageUrl       String?
   aiCategoryConfidence Float? // set when OCR/AI auto-tagged this
+  clientRequestId      String?  @unique
   updatedAt            DateTime @updatedAt
   createdAt            DateTime @default(now())
 

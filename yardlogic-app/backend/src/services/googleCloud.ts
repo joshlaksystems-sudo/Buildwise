@@ -718,7 +718,7 @@ export async function isSubscriptionActive(businessId: string): Promise<boolean>
 }
 
 // Categorize expense using Vertex AI (Gemini)
-export async function categorizeExpenseWithVertexAI(receiptText: string): Promise<AIExpenseResult> {
+export async function categorizeExpenseWithVertexAI(receiptText: string, document?: { buffer: Buffer; mimeType: string }): Promise<AIExpenseResult> {
   try {
     if (!vertexAI) {
       throw new Error("Vertex AI is not initialized. Install @google-cloud/vertexai package.");
@@ -740,7 +740,11 @@ Respond ONLY with valid JSON (no markdown, no preamble):
 {"category": string, "amount": number, "taxAmount": number, "vendor": string|null, "confidence": 0-1, "reasoning": string}`,
     });
 
-    const response = await model.generateContent(receiptText);
+    const input = [
+      { text: receiptText || "Read the uploaded receipt and extract the expense details." },
+      ...(document ? [{ inlineData: { data: document.buffer.toString("base64"), mimeType: document.mimeType } }] : []),
+    ];
+    const response = await model.generateContent(input);
     const content = response.response.candidates?.[0]?.content?.parts?.[0];
 
     if (!content || !("text" in content)) {
@@ -758,7 +762,7 @@ Respond ONLY with valid JSON (no markdown, no preamble):
 // Extracts a purchase bill for human review. This endpoint intentionally
 // returns data only; inventory and payable balances change only after the
 // user confirms the reviewed bill through the normal purchase-bill route.
-export async function extractPurchaseBillWithVertexAI(receiptText: string): Promise<PurchaseBillExtraction> {
+export async function extractPurchaseBillWithVertexAI(receiptText: string, document?: { buffer: Buffer; mimeType: string }): Promise<PurchaseBillExtraction> {
   if (!vertexAI) throw new Error("Vertex AI is not initialized");
   if (process.env.VERTEX_AI_ENABLE !== "true") throw new Error("Vertex AI is disabled. Set VERTEX_AI_ENABLE=true");
 
@@ -768,7 +772,11 @@ export async function extractPurchaseBillWithVertexAI(receiptText: string): Prom
 {"supplierName":string|null,"supplierGstin":string|null,"billNumber":string|null,"billDate":"YYYY-MM-DD"|null,"items":[{"name":string,"quantity":number,"unitPrice":number,"taxRate":number,"lineTotal":number}],"subTotal":number,"taxTotal":number,"grandTotal":number,"confidence":number,"warnings":string[]}
 Use confidence from 0 to 1. If totals conflict with item calculations, keep the printed totals and add a warning.`
   });
-  const response = await model.generateContent(receiptText);
+  const input = [
+    { text: receiptText || "Read the uploaded supplier bill and extract all visible fields." },
+    ...(document ? [{ inlineData: { data: document.buffer.toString("base64"), mimeType: document.mimeType } }] : []),
+  ];
+  const response = await model.generateContent(input);
   const content = response.response.candidates?.[0]?.content?.parts?.[0];
   if (!content || !("text" in content)) throw new Error("Invalid response from Vertex AI");
   const result = parseVertexJson<PurchaseBillExtraction>(content.text as string);

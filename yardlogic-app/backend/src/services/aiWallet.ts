@@ -12,6 +12,7 @@ const costs: Record<string, number> = {
   categorizeExpense: Number(process.env.AI_COST_CATEGORIZE_EXPENSE || "2"),
   generateReport: Number(process.env.AI_COST_GENERATE_REPORT || "5"),
   invoiceInsights: Number(process.env.AI_COST_INVOICE_INSIGHTS || "2"),
+  extractPurchaseBill: Number(process.env.AI_COST_EXTRACT_PURCHASE_BILL || "3"),
 };
 const dailyFreeTokens = Number(process.env.AI_DAILY_FREE_TOKENS || "10");
 const dailyFreeChats = Number(process.env.AI_DAILY_FREE_CHATS || "5");

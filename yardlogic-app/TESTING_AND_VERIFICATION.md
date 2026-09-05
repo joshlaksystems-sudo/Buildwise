@@ -213,6 +213,11 @@ gcloud projects get-iam-policy $PROJECT_ID \
 
 ### Test Expense Categorization (AI)
 
+The expense upload accepts PDF, JPEG, and PNG files up to 10 MB. Select
+several receipt files to create one expense preview per file. Selecting the
+same file more than once, or confirming the same preview again, must not
+create another database row.
+
 ```bash
 # Text-based receipt
 curl -X POST http://localhost:4000/ai/categorize-expense \
@@ -235,6 +240,10 @@ curl -X POST http://localhost:4000/ai/categorize-expense \
 curl -H "Authorization: Bearer $TOKEN" \
   -H "X-Business-Id: [BUSINESS_ID]" \
   http://localhost:4000/expenses
+
+# Supplier invoices are reviewed through the Purchase Bills page. Upload the
+# PDF/image, match every extracted line to an inventory item, and save only
+# after all lines are linked; the save transaction then increments stock.
 ```
 
 ### Test Bank Reconciliation

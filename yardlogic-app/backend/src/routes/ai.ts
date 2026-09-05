@@ -1,5 +1,7 @@
 import { Router } from "express";
+import multer from "multer";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { AuthedRequest, requireAuth } from "../middleware/auth";
 import {
@@ -9,11 +11,14 @@ import {
   getInvoiceInsightsWithVertexAI,
   extractPurchaseBillWithVertexAI,
   answerBusinessQuestionWithVertexAI,
+  scanDocumentForMalware,
+  validateDocumentUpload,
 } from "../services/googleCloud";
 import { AICreditExhaustedError, getAIWallet, withAICredit } from "../services/aiWallet";
 
 export const aiRouter = Router();
 aiRouter.use(requireAuth);
+const aiDocumentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // Middleware: Check subscription for AI features
 async function requireAISubscription(req: AuthedRequest, res: any, next: any) {
@@ -43,7 +48,7 @@ aiRouter.use(requireAISubscription);
 
 // OCR → Categorize expense using Vertex AI (if enabled) or Claude (fallback)
 const ocrSchema = z.object({
-  rawText: z.string().min(1).max(8000),
+  rawText: z.string().max(8000).optional().default(""),
   imageUrl: z.string().optional(),
 });
 
@@ -56,33 +61,29 @@ const aiExpenseResultSchema = z.object({
   reasoning: z.string().max(1000),
 });
 
-aiRouter.post("/categorize-expense", async (req: AuthedRequest, res) => {
+aiRouter.post("/categorize-expense", aiDocumentUpload.single("file"), async (req: AuthedRequest, res) => {
   try {
-    const parsed = ocrSchema.safeParse(req.body);
+    const parsed = ocrSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    if (!parsed.data.rawText.trim() && !req.file) return res.status(400).json({ error: "Paste receipt text or upload a PDF/image" });
     if (process.env.VERTEX_AI_ENABLE !== "true") return res.status(503).json({ error: "AI categorization is disabled. Set VERTEX_AI_ENABLE=true in the backend environment." });
 
+    let document: { buffer: Buffer; mimeType: string } | undefined;
+    if (req.file) {
+      validateDocumentUpload(req.file.buffer, req.file.mimetype, req.file.originalname);
+      await scanDocumentForMalware(req.file.buffer, req.file.originalname);
+      document = { buffer: req.file.buffer, mimeType: req.file.mimetype };
+    }
+
     const result = await withAICredit(req.businessId!, req.userId!, "categorizeExpense", async () => {
-      return categorizeExpenseWithVertexAI(parsed.data.rawText);
+      return categorizeExpenseWithVertexAI(parsed.data.rawText, document);
     });
     const validatedResult = aiExpenseResultSchema.safeParse(result);
     if (!validatedResult.success) {
       return res.status(422).json({ error: "AI could not reliably read this receipt. Please enter the expense manually.", details: validatedResult.error.flatten() });
     }
 
-    const expense = await prisma.expense.create({
-      data: {
-        businessId: req.businessId!,
-        category: validatedResult.data.category,
-        amount: validatedResult.data.amount,
-        taxAmount: validatedResult.data.taxAmount,
-        note: validatedResult.data.vendor ? `From ${validatedResult.data.vendor}` : undefined,
-        sourceImageUrl: parsed.data.imageUrl,
-        aiCategoryConfidence: validatedResult.data.confidence,
-      },
-    });
-
-    res.status(201).json({ expense, aiReasoning: validatedResult.data.reasoning });
+    res.json({ preview: validatedResult.data, aiReasoning: validatedResult.data.reasoning, sourceFileName: req.file?.originalname ?? null });
   } catch (error) {
     if (error instanceof AICreditExhaustedError) return res.status(402).json({ error: error.message, balance: error.balance, required: error.required });
     console.error("Error categorizing expense:", error);
@@ -94,16 +95,57 @@ aiRouter.post("/categorize-expense", async (req: AuthedRequest, res) => {
   }
 });
 
+const confirmExpenseSchema = z.object({
+  clientRequestId: z.string().trim().min(1).max(120),
+  category: z.string().trim().min(1).max(80),
+  amount: z.number().positive(),
+  taxAmount: z.number().min(0),
+  note: z.string().optional(),
+  sourceImageUrl: z.string().optional(),
+  aiCategoryConfidence: z.number().min(0).max(1).optional(),
+});
+
+aiRouter.post("/categorize-expense/confirm", async (req: AuthedRequest, res) => {
+  const parsed = confirmExpenseSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const scopedClientRequestId = `${req.businessId}:${parsed.data.clientRequestId}`.slice(0, 120);
+  const existing = await prisma.expense.findFirst({
+    where: {
+      businessId: req.businessId,
+      clientRequestId: { in: [parsed.data.clientRequestId, scopedClientRequestId] },
+    },
+  });
+  if (existing) return res.json(existing);
+  try {
+    const expense = await prisma.expense.create({ data: { ...parsed.data, clientRequestId: scopedClientRequestId, businessId: req.businessId! } });
+    res.status(201).json(expense);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const existingExpense = await prisma.expense.findFirst({ where: { businessId: req.businessId, clientRequestId: scopedClientRequestId } });
+      if (existingExpense) return res.json(existingExpense);
+    }
+    console.error("Error confirming categorized expense:", error);
+    res.status(500).json({ error: "Unable to save categorized expense" });
+  }
+});
+
 const purchaseBillExtractionSchema = z.object({ rawText: z.string().min(1).max(12000) });
 
 // OCR/Vertex preview only. The reviewed result must be submitted to
 // POST /purchase-bills before it changes stock or supplier balances.
-aiRouter.post("/extract-purchase-bill", async (req: AuthedRequest, res) => {
+aiRouter.post("/extract-purchase-bill", aiDocumentUpload.single("file"), async (req: AuthedRequest, res) => {
   try {
-    const parsed = purchaseBillExtractionSchema.safeParse(req.body);
+    const parsed = purchaseBillExtractionSchema.partial().safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    if (!parsed.data.rawText?.trim() && !req.file) return res.status(400).json({ error: "Paste bill text or upload a PDF/image" });
     if (process.env.VERTEX_AI_ENABLE !== "true") return res.status(402).json({ error: "This feature requires Vertex AI to be enabled" });
-    const extraction = await withAICredit(req.businessId!, req.userId!, "extractPurchaseBill", () => extractPurchaseBillWithVertexAI(parsed.data.rawText));
+    let document: { buffer: Buffer; mimeType: string } | undefined;
+    if (req.file) {
+      validateDocumentUpload(req.file.buffer, req.file.mimetype, req.file.originalname);
+      await scanDocumentForMalware(req.file.buffer, req.file.originalname);
+      document = { buffer: req.file.buffer, mimeType: req.file.mimetype };
+    }
+    const extraction = await withAICredit(req.businessId!, req.userId!, "extractPurchaseBill", () => extractPurchaseBillWithVertexAI(parsed.data.rawText || "", document));
     res.json({ extraction, requiresReview: true });
   } catch (error) {
     if (error instanceof AICreditExhaustedError) return res.status(402).json({ error: error.message, balance: error.balance, required: error.required });

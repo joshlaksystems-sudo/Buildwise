@@ -20,12 +20,17 @@ const expenseSchema = z.object({
   amount: z.number().positive(),
   taxAmount: z.number().default(0),
   note: z.string().optional(),
+  clientRequestId: z.string().trim().max(120).optional(),
 });
 
 // Manual entry — for the OCR/AI path see POST /ai/categorize-expense.
 expensesRouter.post("/", async (req: AuthedRequest, res) => {
   const parsed = expenseSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (parsed.data.clientRequestId) {
+    const previous = await prisma.expense.findFirst({ where: { businessId: req.businessId, clientRequestId: parsed.data.clientRequestId } });
+    if (previous) return res.json(previous);
+  }
   if (parsed.data.supplierId) {
     const supplier = await prisma.supplier.findFirst({
       where: { id: parsed.data.supplierId, businessId: req.businessId },

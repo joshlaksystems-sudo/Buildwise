@@ -15,17 +15,32 @@ interface Expense {
 
 interface CategorizeResult {
   category: string;
+  amount: number;
+  taxAmount: number;
+  vendor?: string | null;
   reasoning: string;
   confidence: number;
+}
+
+interface ExpensePreview extends CategorizeResult {
+  id: string;
+  fileName: string;
+}
+
+async function getExpenseRequestId(file: File | null, receiptText: string) {
+  const source = file ? await file.arrayBuffer() : new TextEncoder().encode(receiptText).buffer;
+  const digest = await crypto.subtle.digest("SHA-256", source);
+  const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `receipt-${hash}`;
 }
 
 export function Expenses() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [receiptText, setReceiptText] = useState("");
-  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [categorizing, setCategorizing] = useState(false);
-  const [lastResult, setLastResult] = useState<CategorizeResult | null>(null);
+  const [previews, setPreviews] = useState<ExpensePreview[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
   const [period, setPeriod] = useState("current");
@@ -51,54 +66,75 @@ export function Expenses() {
   }
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setImageFile(file);
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setImageFiles(files);
+    const firstImage = files.find((file) => file.type.startsWith("image/"));
     const reader = new FileReader();
     reader.onload = (e) => {
       setImagePreview(e.target?.result as string);
     };
-    reader.readAsDataURL(file);
+    if (firstImage) reader.readAsDataURL(firstImage);
+    else setImagePreview(null);
   };
 
   async function categorize() {
-    if (!receiptText.trim() && !imageFile) {
+    if (!receiptText.trim() && !imageFiles.length) {
       alert("Please enter receipt text or upload an image");
-      return;
-    }
-    if (!receiptText.trim() && imageFile) {
-      alert("Image OCR is not enabled yet. Please paste the receipt text before categorizing.");
       return;
     }
 
     setCategorizing(true);
-    setLastResult(null);
     try {
-      const textToProcess = receiptText.trim();
-
-      const res = await api<any>("/ai/categorize-expense", {
-        method: "POST",
-        body: JSON.stringify({
-          rawText: textToProcess,
-          imageUrl: undefined,
-        }),
-      });
-
-      setLastResult({
-        category: res.expense.category,
-        reasoning: res.aiReasoning,
-        confidence: res.expense.aiCategoryConfidence || 0.8,
-      });
-
+      const files = imageFiles.length ? [...new Map(imageFiles.map((file) => [file.name + file.size + file.lastModified, file])).values()] : [null];
+      const nextPreviews: ExpensePreview[] = [];
+      for (const file of files) {
+        const form = new FormData();
+        form.append("rawText", receiptText.trim());
+        if (file) form.append("file", file);
+        const res = await api<any>("/ai/categorize-expense", { method: "POST", body: form });
+        const id = await getExpenseRequestId(file, receiptText.trim());
+        nextPreviews.push({
+          id,
+          fileName: file?.name || "Pasted receipt",
+          ...res.preview,
+          reasoning: res.aiReasoning,
+        });
+      }
+      setPreviews((current) => [...current, ...nextPreviews]);
       setReceiptText("");
-      setImageFile(null);
+      setImageFiles([]);
       setImagePreview(null);
-      refresh();
     } catch (error) {
       console.error("Error categorizing expense:", error);
       const message = error instanceof Error ? error.message : "AI categorization failed. Enter the expense manually and try again.";
       alert(message);
+    } finally {
+      setCategorizing(false);
+    }
+  }
+
+  async function confirmExpenses() {
+    if (!previews.length) return;
+    setCategorizing(true);
+    try {
+      for (const preview of previews) {
+        await api("/ai/categorize-expense/confirm", {
+          method: "POST",
+          body: JSON.stringify({
+            clientRequestId: preview.id,
+            category: preview.category,
+            amount: preview.amount,
+            taxAmount: preview.taxAmount,
+            note: preview.vendor ? `From ${preview.vendor}` : undefined,
+            aiCategoryConfidence: preview.confidence,
+          }),
+        });
+      }
+      setPreviews([]);
+      refresh();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Unable to save reviewed expenses");
     } finally {
       setCategorizing(false);
     }
@@ -140,14 +176,14 @@ export function Expenses() {
       {/* AI Categorization Section */}
       <div className="categorize-section">
         <div className="categorize-header">
-          <h2>📸 Quick Expense Entry</h2>
-          <p>Paste receipt text or upload an image for AI-powered categorization</p>
+          <h2>Quick Expense Entry</h2>
+          <p>Paste receipt text or upload a PDF or image for AI-powered categorization</p>
         </div>
 
         <div className="categorize-form">
           <div className="form-row">
             <div className="form-group">
-              <label>Receipt Text *</label>
+              <label>Receipt Text</label>
               <textarea
                 value={receiptText}
                 onChange={(e) => setReceiptText(e.target.value)}
@@ -155,7 +191,7 @@ export function Expenses() {
                 placeholder="e.g. Sharma Electricals — Bill No 4521 — Total Rs. 2,360 (incl GST Rs. 360)…"
                 disabled={categorizing}
               />
-              <small>Paste OCR'd receipt text, bill details, or invoice information</small>
+              <small>Optional when the uploaded PDF or image contains the receipt details.</small>
             </div>
             {imagePreview && (
               <div className="form-group">
@@ -163,46 +199,40 @@ export function Expenses() {
                 <img src={imagePreview} alt="Receipt" className="receipt-preview" />
               </div>
             )}
-            {!imagePreview && (
-              <div className="form-group">
-                <label>Or Upload Receipt Image (Optional)</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageUpload}
-                  disabled={categorizing}
-                />
-                <small>JPG, PNG, or PDF scans of receipts/bills</small>
-              </div>
-            )}
+            <div className="form-group">
+              <label>Upload Receipt PDF or Image</label>
+              <input
+                type="file"
+                accept="image/*,.pdf,application/pdf"
+                multiple
+                onChange={handleImageUpload}
+                disabled={categorizing}
+              />
+              <small>JPG, PNG, or PDF scans. Each selected receipt becomes one expense.</small>
+            </div>
           </div>
 
           <button
             className="btn-primary"
             onClick={categorize}
-            disabled={categorizing || (!receiptText && !imageFile)}
+            disabled={categorizing || (!receiptText && !imageFiles.length)}
           >
-            {categorizing ? "🤖 Analyzing..." : "✨ Categorize with AI"}
+            {categorizing ? "Analyzing..." : "Preview with AI"}
           </button>
 
-          {lastResult && (
+          {previews.length > 0 && (
             <div className="result-box">
               <div className="result-header">
-                <h3>✓ Expense Categorized</h3>
-                <span className="confidence-badge">
-                  {(lastResult.confidence * 100).toFixed(0)}% confident
-                </span>
+                <h3>Review {previews.length} expense{previews.length === 1 ? "" : "s"}</h3>
+                <button className="btn-primary" onClick={confirmExpenses} disabled={categorizing}>Confirm expenses</button>
               </div>
-              <div className="result-content">
-                <div className="result-field">
-                  <strong>Category:</strong>
-                  <span className="category-tag">{lastResult.category}</span>
+              {previews.map((preview) => (
+                <div className="result-content" key={preview.id}>
+                  <div className="result-field"><strong>{preview.fileName}</strong><span className="category-tag">{preview.category}</span></div>
+                  <div className="result-field"><strong>Amount:</strong><span>₹{preview.amount.toLocaleString("en-IN")} (GST ₹{preview.taxAmount.toLocaleString("en-IN")})</span></div>
+                  <div className="result-field"><strong>Reasoning:</strong><p>{preview.reasoning}</p></div>
                 </div>
-                <div className="result-field">
-                  <strong>Reasoning:</strong>
-                  <p>{lastResult.reasoning}</p>
-                </div>
-              </div>
+              ))}
             </div>
           )}
         </div>
