@@ -95,7 +95,7 @@ let syncInFlight: Promise<void> | null = null;
 
 /** Call once on app load: flushes any queued writes, pulls fresh data, then keeps doing both as connectivity changes. */
 export function initSync() {
-  if (syncStarted) return;
+  if (syncStarted || !localStorage.getItem("businessId")) return;
   syncStarted = true;
 
   const runFullSync = async () => {
