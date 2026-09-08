@@ -12,6 +12,13 @@ export interface AuthedRequest extends Request {
   role?: string;
 }
 
+export function validateApplicationScope(requestedApplication: string | undefined, membershipApplication: string | undefined) {
+  if (!requestedApplication || !membershipApplication) return false;
+  if (requestedApplication !== "IBIM" && requestedApplication !== "YARDLOGIC") return false;
+  if (membershipApplication !== "IBIM" && membershipApplication !== "YARDLOGIC") return false;
+  return requestedApplication === membershipApplication;
+}
+
 export async function requireIdentity(req: AuthedRequest, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) return res.status(401).json({ error: "Missing bearer token" });
@@ -66,7 +73,7 @@ export async function requireAuth(req: AuthedRequest, res: Response, next: NextF
 
   if (process.env.APPLICATION_ID === "ALL") {
     const requestedApplication = req.header("X-Application-Id");
-    if (requestedApplication !== "IBIM" && requestedApplication !== "YARDLOGIC") {
+    if (!validateApplicationScope(requestedApplication, membership.business.applicationId)) {
       return res.status(400).json({ error: "Missing or invalid X-Application-Id header" });
     }
     if (membership.business.applicationId !== requestedApplication) {

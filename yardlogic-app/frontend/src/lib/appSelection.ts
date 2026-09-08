@@ -1,5 +1,22 @@
 export type ApplicationType = "IBIM" | "YARDLOGIC";
 
+export function setApplicationPreference(application: ApplicationType) {
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem("applicationPreference", application);
+  }
+}
+
+export function clearAuthSession(options: { preserveApplicationPreference?: boolean } = {}) {
+  if (typeof window === "undefined") return;
+  const { preserveApplicationPreference = true } = options;
+  window.localStorage.removeItem("token");
+  window.localStorage.removeItem("businessId");
+  window.localStorage.removeItem("businesses");
+  if (!preserveApplicationPreference) {
+    window.localStorage.removeItem("applicationPreference");
+  }
+}
+
 export function readApplicationPreference(): ApplicationType | "" {
   const value = typeof window !== "undefined" ? localStorage.getItem("applicationPreference") : null;
   return value === "IBIM" || value === "YARDLOGIC" ? value : "";
@@ -50,4 +67,13 @@ export function isAppRouteAllowed(
   hasBusiness: boolean,
 ): boolean {
   return isAuthenticated && hasBusiness && selectedApplication === requiredApplication;
+}
+
+export function isAuthenticatedForSelectedApplication(): boolean {
+  const app = readApplicationPreference();
+  if (!app) return false;
+  const token = typeof window !== "undefined" ? window.localStorage.getItem("token") : null;
+  const businessId = typeof window !== "undefined" ? window.localStorage.getItem("businessId") : null;
+  if (!token || !businessId) return false;
+  return businessMatchesSelectedApplication(app, businessId);
 }

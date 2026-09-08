@@ -70,7 +70,7 @@ export function Layout() {
 
   function logout() {
     localStorage.clear();
-    navigate("/login");
+    navigate("/select-application");
   }
 
   return (

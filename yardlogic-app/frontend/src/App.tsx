@@ -6,7 +6,12 @@ import { IbimWorkspace } from "./pages/IbimWorkspace";
 import { ResetPassword } from "./pages/ResetPassword";
 import { VerifyEmail } from "./pages/VerifyEmail";
 import { api } from "./lib/api";
-import { businessMatchesSelectedApplication, readApplicationPreference } from "./lib/appSelection";
+import {
+  businessMatchesSelectedApplication,
+  clearAuthSession,
+  readApplicationPreference,
+  setApplicationPreference,
+} from "./lib/appSelection";
 
 const Dashboard = lazy(() => import("./pages/Dashboard").then((module) => ({ default: module.Dashboard })));
 const Invoices = lazy(() => import("./pages/Invoices").then((module) => ({ default: module.Invoices })));
@@ -39,6 +44,10 @@ function selectedApplication() {
   return readApplicationPreference();
 }
 
+function clearAppSession() {
+  clearAuthSession({ preserveApplicationPreference: true });
+}
+
 function isAuthed() {
   return Boolean(localStorage.getItem("token"));
 }
@@ -62,11 +71,11 @@ export default function App() {
     <Suspense fallback={<div style={{ padding: 32 }}>Loading workspace...</div>}>
       <Routes>
         <Route path="/select-application" element={<ApplicationHome />} />
-        <Route path="/login" element={<Login />} />
+        <Route path="/login" element={isAuthed() && isBusinessValidForSelectedApp() ? <Navigate to={selectedApplication() === "IBIM" ? "/ibim" : "/" } replace /> : <Login />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         {isIbim && <Route path="/ibim" element={isAuthed() && isBusinessValidForSelectedApp() && (!isMultiApplication || selectedApplication() === "IBIM") ? <IbimWorkspace /> : <Navigate to={isMultiApplication ? "/select-application" : "/login"} replace />} />}
-        {isYardLogic && <Route path="/" element={isMultiApplication && !selectedApplication() ? <ApplicationHome /> : isAuthed() && isBusinessValidForSelectedApp() ? <Layout /> : <Navigate to={isMultiApplication ? "/select-application" : "/login"} />}>
+        {isYardLogic && <Route path="/" element={isMultiApplication && !selectedApplication() ? <ApplicationHome /> : isAuthed() && isBusinessValidForSelectedApp() ? <Layout /> : <Navigate to={isMultiApplication ? "/select-application" : "/login"} replace />}>
           <Route index element={<Dashboard />} />
           <Route path="invoices" element={<Invoices />} />
           <Route path="items" element={<Items />} />
@@ -99,10 +108,9 @@ function ApplicationHome() {
   const [message, setMessage] = useState("");
   useEffect(() => { if (localStorage.getItem("token")) void api<{ businesses: Array<{ id: string; name: string; applicationId: string; role: string }> }>("/auth/application/businesses").then((result) => setUnassigned(result.businesses.filter((business) => business.applicationId === "UNASSIGNED"))).catch(() => {}); }, []);
   function choose(application: "IBIM" | "YARDLOGIC") {
-    localStorage.removeItem("businessId");
-    localStorage.removeItem("businesses");
-    localStorage.setItem("applicationPreference", application);
-    window.location.assign(application === "IBIM" ? "/login?application=IBIM" : "/login?application=YARDLOGIC");
+    clearAppSession();
+    setApplicationPreference(application);
+    window.location.replace(application === "IBIM" ? "/login?application=IBIM" : "/login?application=YARDLOGIC");
   }
 
   async function classify(id: string, applicationId: "IBIM" | "YARDLOGIC") { try { await api(`/auth/application/businesses/${id}`, { method: "PATCH", body: JSON.stringify({ applicationId }) }); setUnassigned((items) => items.filter((item) => item.id !== id)); setMessage("Business classified. Select its application to continue."); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to classify business"); } }

@@ -1,7 +1,12 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
-import { resolveBusinessForApplication } from "../lib/appSelection";
+import {
+  clearAuthSession,
+  readStoredBusinesses,
+  resolveBusinessForApplication,
+  setApplicationPreference,
+} from "../lib/appSelection";
 import { initSync } from "../lib/syncManager";
 
 function storeSession(data: any) {
@@ -10,19 +15,55 @@ function storeSession(data: any) {
   localStorage.setItem("businesses", JSON.stringify(data.businesses));
   const first = resolveBusinessForApplication(data.businesses || [], preferredApplication);
   if (!first) {
-    localStorage.removeItem("token");
-    localStorage.removeItem("businesses");
-    localStorage.removeItem("businessId");
+    clearAuthSession({ preserveApplicationPreference: true });
     throw new Error(`No ${preferredApplication} workspace is linked to this account. Create or classify a workspace first.`);
   }
   localStorage.setItem("businessId", first);
 }
 export function Login() {
+  const navigate = useNavigate();
   const [application] = useState<"IBIM" | "YARDLOGIC">(() => {
     const requested = new URLSearchParams(window.location.search).get("application");
-    if (requested === "IBIM" || requested === "YARDLOGIC") localStorage.setItem("applicationPreference", requested);
-    return (requested || localStorage.getItem("applicationPreference") || import.meta.env.VITE_APPLICATION_ID || "YARDLOGIC") as "IBIM" | "YARDLOGIC";
+    const selected = (requested === "IBIM" || requested === "YARDLOGIC"
+      ? requested
+      : localStorage.getItem("applicationPreference")
+        || import.meta.env.VITE_APPLICATION_ID
+        || "YARDLOGIC") as "IBIM" | "YARDLOGIC";
+
+    if (requested === "IBIM" || requested === "YARDLOGIC") setApplicationPreference(requested);
+
+    const savedBusinesses = readStoredBusinesses();
+
+    const hasValidSavedBusiness = savedBusinesses.some((entry: any) => {
+      const business = entry?.business ?? entry;
+      return business?.id && business?.applicationId === selected;
+    });
+
+    if (localStorage.getItem("token") && !hasValidSavedBusiness) {
+      clearAuthSession({ preserveApplicationPreference: true });
+    }
+
+    return selected;
   });
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    const savedBusinessId = localStorage.getItem("businessId");
+    const validBusiness = readStoredBusinesses().some((entry: any) => {
+      const business = entry?.business ?? entry;
+      return business?.id === savedBusinessId && business?.applicationId === application;
+    });
+
+    if (!validBusiness) {
+      clearAuthSession({ preserveApplicationPreference: true });
+      return;
+    }
+
+    navigate(application === "IBIM" ? "/ibim" : "/", { replace: true });
+  }, [application, navigate]);
+
   const [mode, setMode] = useState<"login" | "register">("login");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -35,7 +76,6 @@ export function Login() {
   const [forgotMessage, setForgotMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -73,7 +113,7 @@ export function Login() {
       if (mode === "register") {
         void api("/auth/welcome-email", { method: "POST" }).catch(() => {});
       }
-      navigate(application === "IBIM" ? "/ibim" : "/");
+      navigate(application === "IBIM" ? "/ibim" : "/", { replace: true });
     } catch (err: any) {
       if (mode === "login" && err.message === "2FA code required") {
         setRequiresTotp(true);
