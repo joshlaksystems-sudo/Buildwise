@@ -377,6 +377,11 @@ jobs:
             echo "VITE_API_URL is empty. Backend deployment output was not produced and BACKEND_PRODUCTION_URL is not configured."
             exit 1
           fi
+          VITE_API_URL="${VITE_API_URL%/}"
+          if [[ "$VITE_API_URL" != https://* ]]; then
+            echo "VITE_API_URL must be an HTTPS backend URL: $VITE_API_URL"
+            exit 1
+          fi
           echo "Frontend API target: $VITE_API_URL"
           npm run build
 
@@ -389,6 +394,12 @@ jobs:
           VITE_API_URL: ${{ needs.backend.outputs.deployment_url || secrets.BACKEND_PRODUCTION_URL }}
         run: |
           test -n "$VITE_API_URL"
+          VITE_API_URL="${VITE_API_URL%/}"
+          if [[ "$VITE_API_URL" != https://* ]]; then
+            echo "VITE_API_URL must be an HTTPS backend URL: $VITE_API_URL"
+            exit 1
+          fi
+          echo "Deploying frontend with API target: $VITE_API_URL"
           npx vercel@latest deploy --prod --yes \
             --token="${{ secrets.VERCEL_TOKEN }}" \
             --scope="${{ secrets.VERCEL_ORG_ID }}" \

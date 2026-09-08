@@ -57,8 +57,8 @@ export async function api<T = any>(path: string, options: RequestInit = {}): Pro
         const body = await parseJson<Record<string, any>>(res).catch(() => ({} as Record<string, any>));
         const message = typeof body.error === "string"
           ? body.error
-          : body.error?.message || (res.status === 405 && !API_BASE_URL
-            ? "The production API URL is missing. Configure VITE_API_URL and redeploy the frontend."
+          : body.error?.message || (res.status === 405
+            ? `The API target ${API_BASE_URL || window.location.origin} rejected POST /auth/login. Redeploy the frontend with VITE_API_URL set to the backend URL.`
             : `Request failed: ${res.status}`);
         throw new Error(message);
       }
