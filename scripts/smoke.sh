@@ -16,8 +16,13 @@ request_json() {
 	trap 'rm -f "$response_file" "$headers_file"' RETURN
 	status="$(curl "${curl_args[@]}" -D "$headers_file" -o "$response_file" -w '%{http_code}' "$url")"
 	content_type="$(awk 'BEGIN {IGNORECASE=1} /^content-type:/ {sub(/^[^:]*:[[:space:]]*/, ""); print; exit}' "$headers_file" | tr -d '\r')"
-	if [ "$status" != "200" ] || [[ "$content_type" != application/json* ]]; then
-		echo "Smoke check expected JSON but received HTTP $status ($content_type) from $url" >&2
+	if [ "$status" != "200" ]; then
+		echo "Smoke check expected HTTP 200 but received HTTP $status ($content_type) from $url" >&2
+		head -c 1000 "$response_file" >&2
+		return 1
+	fi
+	if ! jq -e . "$response_file" >/dev/null 2>&1; then
+		echo "Smoke check expected a JSON body but received ($content_type) from $url" >&2
 		head -c 1000 "$response_file" >&2
 		return 1
 	fi
