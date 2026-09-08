@@ -241,8 +241,10 @@ jobs:
           BILLING_WEBHOOK_SECRET: ${{ secrets.BILLING_WEBHOOK_SECRET }}
           MONITORING_WEBHOOK_URL: ${{ secrets.MONITORING_WEBHOOK_URL }}
         run: |
+          set -euo pipefail
           deployment_output_file="$(mktemp)"
           trap 'rm -f "$deployment_output_file"' EXIT
+          set +e
           npx vercel@latest deploy --prod --yes \
             --token="${{ secrets.VERCEL_TOKEN }}" \
             --scope="${{ secrets.VERCEL_ORG_ID }}" \
@@ -291,6 +293,17 @@ jobs:
             --env "REQUIRE_EMAIL_VERIFICATION=${REQUIRE_EMAIL_VERIFICATION:-false}" \
             --env "BILLING_WEBHOOK_SECRET=$BILLING_WEBHOOK_SECRET" \
             --env "MONITORING_WEBHOOK_URL=$MONITORING_WEBHOOK_URL" 2>&1 | tee "$deployment_output_file"
+          deploy_status="${PIPESTATUS[0]}"
+          set -e
+          if [ "$deploy_status" -ne 0 ]; then
+            if grep -q 'api-deployments-free-per-day' "$deployment_output_file"; then
+              echo "Vercel rejected the backend deployment because the account has reached its daily deployment limit."
+              echo "Wait for the quota window to reset or upgrade the Vercel plan, then rerun this workflow."
+            else
+              echo "Vercel backend deployment failed with exit code $deploy_status."
+            fi
+            exit "$deploy_status"
+          fi
           backend_deployment_url="$( { grep -E '^[[:space:]]*Production[[:space:]]+https://' "$deployment_output_file" || true; } | grep -Eo 'https://[^[:space:]]+\.vercel\.app' | tail -n 1 | sed 's:/$::')"
           if [ -z "$backend_deployment_url" ]; then
             echo "Could not find the backend Production URL in Vercel output."
