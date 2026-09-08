@@ -2,8 +2,26 @@ import { Router, Request, Response } from "express";
 import crypto from "node:crypto";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
+import { AuthedRequest, requireAuth } from "../middleware/auth";
 
 export const emailWebhooksRouter = Router();
+
+type RawBodyRequest = Request & { rawBody?: Buffer };
+
+function rawPayload(req: RawBodyRequest) {
+  return req.rawBody || Buffer.from(JSON.stringify(req.body || {}));
+}
+
+function signaturesMatch(actual: string, expected: string, encoding: BufferEncoding = "utf8") {
+  const actualBytes = Buffer.from(actual, encoding);
+  const expectedBytes = Buffer.from(expected, encoding);
+  return actualBytes.length === expectedBytes.length && crypto.timingSafeEqual(actualBytes, expectedBytes);
+}
+
+function webhookEventId(payload: Record<string, unknown>) {
+  const value = payload.id || payload.event_id || payload.eventId || payload.sg_event_id;
+  return typeof value === "string" && value.length <= 180 ? value : undefined;
+}
 
 // ============================================================
 // Email Webhook Handlers for Razormail, SendGrid, Mailgun
@@ -26,13 +44,13 @@ emailWebhooksRouter.post("/email/razormail", async (req: Request, res: Response)
     }
 
     // Verify signature
-    const raw = JSON.stringify(req.body || {});
+    const raw = rawPayload(req);
     const expected = crypto
       .createHmac("sha256", secret)
       .update(raw)
       .digest("hex");
 
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    if (!signaturesMatch(signature, expected)) {
       console.warn("Invalid Razormail webhook signature");
       return res.status(401).json({ error: "Invalid signature" });
     }
@@ -41,6 +59,7 @@ emailWebhooksRouter.post("/email/razormail", async (req: Request, res: Response)
     const eventType = payload.event; // bounce, delivery, open, click, complaint, send
     const messageId = payload.message_id || payload.messageId;
     const recipient = payload.recipient || payload.email;
+    const providerEventId = webhookEventId(payload);
 
     if (!messageId) {
       console.warn("Razormail webhook missing message_id");
@@ -88,10 +107,15 @@ emailWebhooksRouter.post("/email/razormail", async (req: Request, res: Response)
     }
 
     // Store webhook event
+    if (providerEventId && await prisma.ibimEmailWebhookEvent.findUnique({ where: { provider_providerEventId: { provider: "razormail", providerEventId } } })) {
+      return res.json({ accepted: true, replayed: true });
+    }
+
     await prisma.ibimEmailWebhookEvent.create({
       data: {
         deliveryId: delivery.id,
         provider: "razormail",
+        providerEventId,
         eventType,
         recipient: recipient || delivery.recipient,
         payload: req.body,
@@ -138,7 +162,7 @@ emailWebhooksRouter.post("/email/sendgrid", async (req: Request, res: Response) 
     }
 
     // Verify signature (SendGrid uses different format)
-    const raw = JSON.stringify(req.body || {});
+    const raw = rawPayload(req);
     const timestamp = req.header("X-Twilio-Email-Event-Webhook-Timestamp");
     if (!timestamp) {
       return res.status(401).json({ error: "Missing timestamp" });
@@ -150,7 +174,7 @@ emailWebhooksRouter.post("/email/sendgrid", async (req: Request, res: Response) 
       .update(toSign)
       .digest("base64");
 
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    if (!signaturesMatch(signature, expected)) {
       console.warn("Invalid SendGrid webhook signature");
       return res.status(401).json({ error: "Invalid signature" });
     }
@@ -162,6 +186,7 @@ emailWebhooksRouter.post("/email/sendgrid", async (req: Request, res: Response) 
       const eventType = event.event; // processed, dropped, delivered, deferred, bounce, open, click, etc.
       const messageId = event.sg_message_id;
       const email = event.email;
+      const providerEventId = webhookEventId(event);
 
       if (!messageId) {
         console.warn("SendGrid webhook missing sg_message_id");
@@ -214,11 +239,16 @@ emailWebhooksRouter.post("/email/sendgrid", async (req: Request, res: Response) 
           break;
       }
 
+      if (providerEventId && await prisma.ibimEmailWebhookEvent.findUnique({ where: { provider_providerEventId: { provider: "sendgrid", providerEventId } } })) {
+        continue;
+      }
+
       // Store webhook event
       await prisma.ibimEmailWebhookEvent.create({
         data: {
           deliveryId: delivery.id,
           provider: "sendgrid",
+          providerEventId,
           eventType,
           recipient: email || delivery.recipient,
           payload: event,
@@ -274,7 +304,7 @@ emailWebhooksRouter.post("/email/mailgun", async (req: Request, res: Response) =
       .update(toSign)
       .digest("hex");
 
-    if (signature !== expected) {
+    if (!signaturesMatch(signature, expected)) {
       console.warn("Invalid Mailgun webhook signature");
       return res.status(401).json({ error: "Invalid signature" });
     }
@@ -288,6 +318,7 @@ emailWebhooksRouter.post("/email/mailgun", async (req: Request, res: Response) =
     const eventType = eventData.event; // delivered, failed, opened, clicked, etc.
     const messageId = eventData.message?.headers?.["message-id"] || eventData.id;
     const recipient = eventData.recipient;
+    const providerEventId = webhookEventId(eventData);
 
     if (!messageId) {
       console.warn("Mailgun webhook missing message-id");
@@ -334,11 +365,16 @@ emailWebhooksRouter.post("/email/mailgun", async (req: Request, res: Response) =
         break;
     }
 
+    if (providerEventId && await prisma.ibimEmailWebhookEvent.findUnique({ where: { provider_providerEventId: { provider: "mailgun", providerEventId } } })) {
+      return res.json({ accepted: true, replayed: true });
+    }
+
     // Store webhook event
     await prisma.ibimEmailWebhookEvent.create({
       data: {
         deliveryId: delivery.id,
         provider: "mailgun",
+        providerEventId,
         eventType,
         recipient: recipient || delivery.recipient,
         payload: req.body,
@@ -369,10 +405,11 @@ emailWebhooksRouter.post("/email/mailgun", async (req: Request, res: Response) =
 // GET endpoint to check delivery status
 emailWebhooksRouter.get(
   "/email-deliveries/:deliveryId",
-  async (req: Request, res: Response) => {
+  requireAuth,
+  async (req: AuthedRequest, res: Response) => {
     try {
-      const delivery = await prisma.ibimEmailDelivery.findUnique({
-        where: { id: req.params.deliveryId },
+      const delivery = await prisma.ibimEmailDelivery.findFirst({
+        where: { id: req.params.deliveryId, businessId: req.businessId },
       });
 
       if (!delivery) {

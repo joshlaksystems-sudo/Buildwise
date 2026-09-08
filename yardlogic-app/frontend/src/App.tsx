@@ -6,6 +6,7 @@ import { IbimWorkspace } from "./pages/IbimWorkspace";
 import { ResetPassword } from "./pages/ResetPassword";
 import { VerifyEmail } from "./pages/VerifyEmail";
 import { api } from "./lib/api";
+import { businessMatchesSelectedApplication, readApplicationPreference } from "./lib/appSelection";
 
 const Dashboard = lazy(() => import("./pages/Dashboard").then((module) => ({ default: module.Dashboard })));
 const Invoices = lazy(() => import("./pages/Invoices").then((module) => ({ default: module.Invoices })));
@@ -35,7 +36,7 @@ const isIbim = isMultiApplication || applicationId === "IBIM";
 const isYardLogic = isMultiApplication || applicationId === "YARDLOGIC";
 
 function selectedApplication() {
-  return localStorage.getItem("applicationPreference") || "";
+  return readApplicationPreference();
 }
 
 function isAuthed() {
@@ -44,6 +45,12 @@ function isAuthed() {
 
 function businessId() {
   return localStorage.getItem("businessId") || "";
+}
+
+function isBusinessValidForSelectedApp() {
+  const app = selectedApplication();
+  const currentBusinessId = businessId();
+  return Boolean(app && currentBusinessId && businessMatchesSelectedApplication(app, currentBusinessId));
 }
 
 export default function App() {
@@ -58,8 +65,8 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
-        {isIbim && <Route path="/ibim" element={isAuthed() && Boolean(businessId()) && (!isMultiApplication || selectedApplication() === "IBIM") ? <IbimWorkspace /> : <Navigate to={isMultiApplication ? "/select-application" : "/login"} replace />} />}
-        {isYardLogic && <Route path="/" element={isMultiApplication && !selectedApplication() ? <ApplicationHome /> : isAuthed() && Boolean(businessId()) ? <Layout /> : <Navigate to={isMultiApplication ? "/select-application" : "/login"} />}>
+        {isIbim && <Route path="/ibim" element={isAuthed() && isBusinessValidForSelectedApp() && (!isMultiApplication || selectedApplication() === "IBIM") ? <IbimWorkspace /> : <Navigate to={isMultiApplication ? "/select-application" : "/login"} replace />} />}
+        {isYardLogic && <Route path="/" element={isMultiApplication && !selectedApplication() ? <ApplicationHome /> : isAuthed() && isBusinessValidForSelectedApp() ? <Layout /> : <Navigate to={isMultiApplication ? "/select-application" : "/login"} />}>
           <Route index element={<Dashboard />} />
           <Route path="invoices" element={<Invoices />} />
           <Route path="items" element={<Items />} />

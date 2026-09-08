@@ -59,7 +59,12 @@ app.use(cors({
 		callback(null, false);
 	},
 }));
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json({
+	limit: "5mb",
+	verify: (req, _res, buffer) => {
+		(req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+	},
+}));
 app.use((_req, res, next) => {
 	res.setHeader("X-Content-Type-Options", "nosniff");
 	res.setHeader("X-Frame-Options", "DENY");

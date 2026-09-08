@@ -340,6 +340,7 @@ model IbimEmailWebhookEvent {
   id          String   @id @default(uuid())
   deliveryId  String
   provider    String   // razormail | sendgrid | mailgun
+  providerEventId String?
   eventType   String   // send | delivery | bounce | open | click | complaint
   recipient   String
   payload     Json
@@ -347,6 +348,7 @@ model IbimEmailWebhookEvent {
   delivery    IbimEmailDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
   @@index([deliveryId, processedAt])
   @@index([provider, eventType])
+  @@unique([provider, providerEventId])
 }
 
 model IbimReconciliation {

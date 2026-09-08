@@ -196,7 +196,12 @@ ibimRouter.get("/activity", async (req: AuthedRequest, res) => {
 });
 
 ibimRouter.get("/email-deliveries", requireRole("OWNER", "ADMIN", "STAFF"), async (req: AuthedRequest, res) => {
-  const deliveries = await prisma.ibimEmailDelivery.findMany({ where: { businessId: req.businessId }, orderBy: { sentAt: "desc" }, take: 200 });
+  const deliveries = await prisma.ibimEmailDelivery.findMany({
+    where: { businessId: req.businessId },
+    include: { events: { orderBy: { processedAt: "desc" }, take: 10, select: { provider: true, eventType: true, processedAt: true } } },
+    orderBy: { sentAt: "desc" },
+    take: 200,
+  });
   res.json({ deliveries });
 });
 

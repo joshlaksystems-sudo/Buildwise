@@ -1,16 +1,19 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
+import { resolveBusinessForApplication } from "../lib/appSelection";
 import { initSync } from "../lib/syncManager";
 
 function storeSession(data: any) {
+  const preferredApplication = (localStorage.getItem("applicationPreference") as "IBIM" | "YARDLOGIC" | null) || "YARDLOGIC";
   localStorage.setItem("token", data.token);
   localStorage.setItem("businesses", JSON.stringify(data.businesses));
-  const first = data.businesses?.[0]?.business?.id ?? data.businesses?.[0]?.businessId;
+  const first = resolveBusinessForApplication(data.businesses || [], preferredApplication);
   if (!first) {
     localStorage.removeItem("token");
     localStorage.removeItem("businesses");
-    throw new Error(`No ${localStorage.getItem("applicationPreference") || "selected"} workspace is linked to this account. Create or classify a workspace first.`);
+    localStorage.removeItem("businessId");
+    throw new Error(`No ${preferredApplication} workspace is linked to this account. Create or classify a workspace first.`);
   }
   localStorage.setItem("businessId", first);
 }
