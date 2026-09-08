@@ -404,10 +404,11 @@ jobs:
         env:
           BACKEND_PRODUCTION_URL: ${{ secrets.BACKEND_PRODUCTION_URL }}
           FRONTEND_PRODUCTION_URL: ${{ secrets.FRONTEND_PRODUCTION_URL }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           if [ -z "$BACKEND_PRODUCTION_URL" ] || [ -z "$FRONTEND_PRODUCTION_URL" ]; then
             echo "Production URL secrets are not configured; skipping smoke checks."
             exit 0
           fi
-          bash ../../scripts/smoke.sh "$BACKEND_PRODUCTION_URL" "$FRONTEND_PRODUCTION_URL"
+          bash ../../scripts/smoke.sh "$BACKEND_PRODUCTION_URL" "$FRONTEND_PRODUCTION_URL" "$VERCEL_AUTOMATION_BYPASS_SECRET"
 
