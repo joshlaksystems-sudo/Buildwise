@@ -16,6 +16,7 @@ export function Login() {
   const [password, setPassword] = useState("");
   const [totpCode, setTotpCode] = useState("");
   const [requiresTotp, setRequiresTotp] = useState(false);
+  const [requiresEmailVerification, setRequiresEmailVerification] = useState(false);
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [forgotMode, setForgotMode] = useState(false);
@@ -63,6 +64,9 @@ export function Login() {
       if (mode === "login" && err.message === "2FA code required") {
         setRequiresTotp(true);
       }
+      if (mode === "login" && err.message === "Please verify your email before logging in") {
+        setRequiresEmailVerification(true);
+      }
       setError(err.message || "Unable to continue");
     } finally {
       setLoading(false);
@@ -77,6 +81,17 @@ export function Login() {
       setForgotMessage("If an account exists for that email, a reset link has been sent.");
     } catch (err: any) {
       setError(err.message || "Unable to request a reset link");
+    }
+  }
+
+  async function resendVerification() {
+    setError("");
+    setForgotMessage("");
+    try {
+      await api("/auth/resend-verification", { method: "POST", body: JSON.stringify({ email: identifier.trim().toLowerCase() }) });
+      setForgotMessage("If this account needs verification, a new verification email has been sent.");
+    } catch (err: any) {
+      setError(err.message || "Unable to resend verification email");
     }
   }
 
@@ -114,6 +129,7 @@ export function Login() {
           <Field label="Password" type="password" value={password} onChange={setPassword} />
           {mode === "login" && requiresTotp && <Field label="Authenticator code" value={totpCode} onChange={setTotpCode} />}
           {error && <p style={{ color: "var(--red)", fontSize: 13 }}>{error}</p>}
+          {requiresEmailVerification && <button type="button" className="secondary" style={{ width: "100%", marginBottom: 8 }} onClick={resendVerification}>Resend verification email</button>}
           <button type="submit" style={{ width: "100%" }} disabled={loading || !identifier || password.length < 8 || (mode === "register" && (!name || !businessName))}>
             {loading ? "Please wait..." : mode === "login" ? "Log in" : "Create account"}
           </button>

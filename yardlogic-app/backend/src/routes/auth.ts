@@ -103,9 +103,31 @@ authRouter.post("/signup", async (req, res) => {
   const full = await userWithBusinesses(user.id);
   if (field === "email") {
     const verificationToken = await issueAuthToken(user.id, "EMAIL_VERIFICATION", 24 * 60 * 60 * 1000);
-    void sendVerificationEmail(identifier, name, verificationToken).catch((error) => console.error("Verification email failed:", error));
+    try {
+      const delivered = await sendVerificationEmail(identifier, name, verificationToken);
+      if (!delivered) return res.status(503).json({ error: "Verification email is not configured" });
+    } catch (error) {
+      console.error("Verification email failed:", error);
+      return res.status(502).json({ error: "Verification email could not be sent" });
+    }
   }
   res.status(201).json({ token: signToken(user.id), user: { id: user.id, name: user.name }, businesses: full!.businesses });
+});
+
+authRouter.post("/resend-verification", async (req, res) => {
+  const parsed = z.object({ email: z.string().trim().email().transform((value) => value.toLowerCase()) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Enter a valid email address" });
+  const user = await prisma.user.findUnique({ where: { email: parsed.data.email } });
+  if (!user?.email || user.emailVerifiedAt) return res.json({ sent: true });
+  const verificationToken = await issueAuthToken(user.id, "EMAIL_VERIFICATION", 24 * 60 * 60 * 1000);
+  try {
+    const delivered = await sendVerificationEmail(user.email, user.name, verificationToken);
+    if (!delivered) return res.status(503).json({ error: "Verification email is not configured" });
+  } catch (error) {
+    console.error("Verification email resend failed:", error);
+    return res.status(502).json({ error: "Verification email could not be sent" });
+  }
+  res.json({ sent: true });
 });
 
 const forgotPasswordSchema = z.object({ email: z.string().trim().email().transform((value) => value.toLowerCase()) });
