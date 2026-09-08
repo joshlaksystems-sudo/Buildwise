@@ -40,9 +40,11 @@ const applicationId = process.env.APPLICATION_ID;
 if (process.env.NODE_ENV === "production" && applicationId !== "IBIM" && applicationId !== "YARDLOGIC" && applicationId !== "ALL") {
 	throw new Error("APPLICATION_ID must be configured in production as IBIM, YARDLOGIC, or ALL");
 }
-const allowedOrigins = (process.env.CORS_ORIGINS || "*")
-	.split(",")
-	.map((origin) => origin.trim())
+const allowedOrigins = [
+	...(process.env.CORS_ORIGINS || "*").split(","),
+	process.env.FRONTEND_URL || "",
+]
+	.map((origin) => origin.trim().replace(/\/$/, ""))
 	.filter(Boolean);
 const isVercelOrigin = (origin: string) => /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin);
 const allowVercelPreviews = process.env.ALLOW_VERCEL_PREVIEWS === "true";
@@ -53,7 +55,7 @@ app.use(cors({
 			callback(null, true);
 			return;
 		}
-		callback(new Error("Origin is not allowed by CORS"));
+		callback(null, false);
 	},
 }));
 app.use(express.json({ limit: "5mb" }));
