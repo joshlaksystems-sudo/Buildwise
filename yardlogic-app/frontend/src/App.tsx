@@ -3,6 +3,8 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { Login } from "./pages/Login";
 import { IbimWorkspace } from "./pages/IbimWorkspace";
+import { ResetPassword } from "./pages/ResetPassword";
+import { VerifyEmail } from "./pages/VerifyEmail";
 
 const Dashboard = lazy(() => import("./pages/Dashboard").then((module) => ({ default: module.Dashboard })));
 const Invoices = lazy(() => import("./pages/Invoices").then((module) => ({ default: module.Invoices })));
@@ -42,6 +44,8 @@ export default function App() {
     <Suspense fallback={<div style={{ padding: 32 }}>Loading YardLogic...</div>}>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/ibim" element={isAuthed() && preferredApplication() === "IBIM" ? <IbimWorkspace /> : <Navigate to={isAuthed() ? "/" : "/login"} replace />} />
         <Route path="/" element={isAuthed() ? <Layout /> : <Navigate to="/login" />}>
           <Route index element={<Dashboard />} />

@@ -29,7 +29,11 @@ import { operationsRouter } from "./routes/operations";
 import { growthRouter } from "./routes/growth";
 import { approvalsRouter } from "./routes/approvals";
 import { whatsappRouter } from "./routes/whatsapp";
+import { ibimRouter } from "./routes/ibim";
+import { billingRouter } from "./routes/billing";
 import { prisma } from "./lib/prisma";
+import crypto from "node:crypto";
+import { reportUnhandledError } from "./services/monitoring";
 
 const app = express();
 const allowedOrigins = (process.env.CORS_ORIGINS || "*")
@@ -48,10 +52,24 @@ app.use(cors({
 	},
 }));
 app.use(express.json({ limit: "5mb" }));
+app.use((req, res, next) => {
+	const requestId = req.header("X-Request-Id") || crypto.randomUUID();
+	res.setHeader("X-Request-Id", requestId);
+	res.locals.requestId = requestId;
+	next();
+});
 initializeGoogleCloud();
 
 app.get("/", (_req, res) => res.json({ ok: true, service: "yardlogic-backend" }));
 app.get("/health", (_req, res) => res.json({ ok: true }));
+app.get("/health/ready", async (_req, res) => {
+	try {
+		await prisma.$queryRaw`SELECT 1`;
+		res.json({ ok: true, database: "connected", vertexAI: googleCloudStatus().vertexAIEnabled });
+	} catch {
+		res.status(503).json({ ok: false, database: "unavailable" });
+	}
+});
 app.get("/health/db", async (_req, res) => {
 	try {
 		await prisma.$queryRaw`SELECT 1`;
@@ -93,9 +111,11 @@ app.use("/advanced", advancedWorkflowsRouter);
 app.use("/operations", operationsRouter);
 app.use("/growth", growthRouter);
 app.use("/approvals", approvalsRouter);
+app.use("/ibim", ibimRouter);
+app.use("/billing", billingRouter);
 
-app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-	console.error("Unhandled API error:", error);
+app.use((error: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+	void reportUnhandledError(error, { requestId: res.locals.requestId, path: req.path, method: req.method });
 	if (res.headersSent) return;
 	res.status(500).json({ error: "Something went wrong. Please try again." });
 });

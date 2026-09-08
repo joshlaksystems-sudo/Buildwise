@@ -199,6 +199,10 @@ jobs:
           MSG91_SENDER_ID: ${{ secrets.MSG91_SENDER_ID }}
           MSG91_TEMPLATE_ID: ${{ secrets.MSG91_TEMPLATE_ID }}
           CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          REQUIRE_EMAIL_VERIFICATION: ${{ secrets.REQUIRE_EMAIL_VERIFICATION }}
+          BILLING_WEBHOOK_SECRET: ${{ secrets.BILLING_WEBHOOK_SECRET }}
+          MONITORING_WEBHOOK_URL: ${{ secrets.MONITORING_WEBHOOK_URL }}
         run: |
           deployment_output_file="$(mktemp)"
           trap 'rm -f "$deployment_output_file"' EXIT
@@ -244,7 +248,11 @@ jobs:
             --env "MSG91_AUTH_KEY=$MSG91_AUTH_KEY" \
             --env "MSG91_SENDER_ID=$MSG91_SENDER_ID" \
             --env "MSG91_TEMPLATE_ID=$MSG91_TEMPLATE_ID" \
-            --env "CORS_ORIGINS=$CORS_ORIGINS" 2>&1 | tee "$deployment_output_file"
+            --env "CORS_ORIGINS=$CORS_ORIGINS" \
+            --env "FRONTEND_URL=$FRONTEND_URL" \
+            --env "REQUIRE_EMAIL_VERIFICATION=${REQUIRE_EMAIL_VERIFICATION:-false}" \
+            --env "BILLING_WEBHOOK_SECRET=$BILLING_WEBHOOK_SECRET" \
+            --env "MONITORING_WEBHOOK_URL=$MONITORING_WEBHOOK_URL" 2>&1 | tee "$deployment_output_file"
           backend_deployment_url="$( { grep -E '^[[:space:]]*Production[[:space:]]+https://' "$deployment_output_file" || true; } | grep -Eo 'https://[^[:space:]]+\.vercel\.app' | tail -n 1 | sed 's:/$::')"
           if [ -z "$backend_deployment_url" ]; then
             echo "Could not find the backend Production URL in Vercel output."
@@ -315,4 +323,15 @@ jobs:
             --build-env "VITE_PRODUCT_NAME=${{ secrets.VITE_PRODUCT_NAME }}" \
             --build-env "VITE_GCS_BUCKET=${{ secrets.VITE_GCS_BUCKET }}" \
             --build-env "VITE_GCP_PROJECT_ID=${{ secrets.VITE_GCP_PROJECT_ID }}"
+
+      - name: Run production smoke checks
+        env:
+          BACKEND_PRODUCTION_URL: ${{ secrets.BACKEND_PRODUCTION_URL }}
+          FRONTEND_PRODUCTION_URL: ${{ secrets.FRONTEND_PRODUCTION_URL }}
+        run: |
+          if [ -z "$BACKEND_PRODUCTION_URL" ] || [ -z "$FRONTEND_PRODUCTION_URL" ]; then
+            echo "Production URL secrets are not configured; skipping smoke checks."
+            exit 0
+          fi
+          bash ../../scripts/smoke.sh "$BACKEND_PRODUCTION_URL" "$FRONTEND_PRODUCTION_URL"
 

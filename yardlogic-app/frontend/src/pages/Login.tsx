@@ -20,6 +20,8 @@ export function Login() {
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [applicationPreference, setApplicationPreference] = useState<"YARDLOGIC" | "IBIM">("YARDLOGIC");
+  const [forgotMode, setForgotMode] = useState(false);
+  const [forgotMessage, setForgotMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -70,6 +72,17 @@ export function Login() {
     }
   }
 
+  async function requestPasswordReset() {
+    setError("");
+    setForgotMessage("");
+    try {
+      await api("/auth/forgot-password", { method: "POST", body: JSON.stringify({ email: identifier.trim().toLowerCase() }) });
+      setForgotMessage("If an account exists for that email, a reset link has been sent.");
+    } catch (err: any) {
+      setError(err.message || "Unable to request a reset link");
+    }
+  }
+
   return (
     <div style={{ display: "grid", placeItems: "center", minHeight: "100vh", background: "var(--paper)" }}>
       <div style={{ width: 380, background: "var(--paper-raised)", padding: 32, border: "1px solid var(--rule)" }}>
@@ -78,7 +91,12 @@ export function Login() {
           {mode === "login" ? "Log in with your email and password." : "Create your account with email and password."}
         </p>
 
-        <form onSubmit={submit}>
+        {forgotMode ? <div>
+          <Field label="Account email" value={identifier} onChange={setIdentifier} />
+          {error && <p style={{ color: "var(--red)", fontSize: 13 }}>{error}</p>}
+          {forgotMessage && <p style={{ color: "var(--green)", fontSize: 13 }}>{forgotMessage}</p>}
+          <button type="button" style={{ width: "100%" }} disabled={!/^\S+@\S+\.\S+$/.test(identifier)} onClick={requestPasswordReset}>Send reset link</button>
+        </div> : <form onSubmit={submit}>
           {mode === "register" && <Field label="Your name" value={name} onChange={setName} />}
           {mode === "register" && <Field label="Business name" value={businessName} onChange={setBusinessName} />}
           {mode === "register" && <PreferenceChoice value={applicationPreference} onChange={setApplicationPreference} />}
@@ -89,15 +107,17 @@ export function Login() {
           <button type="submit" style={{ width: "100%" }} disabled={loading || !identifier || password.length < 8 || (mode === "register" && (!name || !businessName))}>
             {loading ? "Please wait..." : mode === "login" ? "Log in" : "Create account"}
           </button>
-        </form>
+        </form>}
+
+        {mode === "login" && !forgotMode && <button type="button" className="secondary" style={{ width: "100%", marginTop: 8 }} onClick={() => { setForgotMode(true); setError(""); }}>Forgot password?</button>}
 
         <button
           type="button"
           className="secondary"
           style={{ width: "100%", marginTop: 8 }}
-          onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}
+          onClick={() => { if (forgotMode) { setForgotMode(false); setForgotMessage(""); return; } setMode(mode === "login" ? "register" : "login"); setError(""); }}
         >
-          {mode === "login" ? "Create a new account" : "Already have an account? Log in"}
+          {forgotMode ? "Back to login" : mode === "login" ? "Create a new account" : "Already have an account? Log in"}
         </button>
       </div>
     </div>

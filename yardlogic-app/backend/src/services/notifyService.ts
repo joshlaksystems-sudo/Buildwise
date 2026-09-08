@@ -152,6 +152,24 @@ export async function sendWelcomeEmail(email: string, name: string) {
   );
 }
 
+export async function sendVerificationEmail(email: string, name: string, token: string) {
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  return sendGmailEmail(
+    email,
+    "Verify your YardLogic email",
+    `Hello ${name},\n\nVerify your YardLogic email by opening:\n${frontendUrl}/verify-email?token=${encodeURIComponent(token)}\n\nThis link expires in 24 hours.\n\nRegards,\nYardLogic`
+  );
+}
+
+export async function sendPasswordResetEmail(email: string, name: string, token: string) {
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  return sendGmailEmail(
+    email,
+    "Reset your YardLogic password",
+    `Hello ${name},\n\nReset your YardLogic password by opening:\n${frontendUrl}/reset-password?token=${encodeURIComponent(token)}\n\nThis link expires in 60 minutes. If you did not request this, ignore this email.\n\nRegards,\nYardLogic`
+  );
+}
+
 export async function sendOtp(identifier: string, code: string) {
   const provider = resolveNotificationProvider(identifier);
 

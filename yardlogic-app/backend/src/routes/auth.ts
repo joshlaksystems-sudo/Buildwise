@@ -1,12 +1,27 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
+import crypto from "node:crypto";
 import { z } from "zod";
 import { authenticator } from "otplib";
 import { prisma } from "../lib/prisma";
 import { signToken, requireAuth, AuthedRequest } from "../middleware/auth";
-import { sendOtp, sendWelcomeEmail } from "../services/notifyService";
+import { sendOtp, sendWelcomeEmail, sendPasswordResetEmail, sendVerificationEmail } from "../services/notifyService";
 
 export const authRouter = Router();
+
+function createRawToken() {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+function hashToken(token: string) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+async function issueAuthToken(userId: string, type: "EMAIL_VERIFICATION" | "PASSWORD_RESET", expiresInMs: number) {
+  const rawToken = createRawToken();
+  await prisma.authToken.create({ data: { userId, type, tokenHash: hashToken(rawToken), expiresAt: new Date(Date.now() + expiresInMs) } });
+  return rawToken;
+}
 
 // Returns every business this user belongs to, with their role in
 // each — the frontend uses this to render the business switcher and
@@ -88,7 +103,53 @@ authRouter.post("/signup", async (req, res) => {
   });
 
   const full = await userWithBusinesses(user.id);
+  if (field === "email") {
+    const verificationToken = await issueAuthToken(user.id, "EMAIL_VERIFICATION", 24 * 60 * 60 * 1000);
+    void sendVerificationEmail(identifier, name, verificationToken).catch((error) => console.error("Verification email failed:", error));
+  }
   res.status(201).json({ token: signToken(user.id), user: { id: user.id, name: user.name, applicationPreference: user.applicationPreference }, applicationPreference: user.applicationPreference, businesses: full!.businesses });
+});
+
+const forgotPasswordSchema = z.object({ email: z.string().trim().email().transform((value) => value.toLowerCase()) });
+
+authRouter.post("/forgot-password", async (req, res) => {
+  const parsed = forgotPasswordSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const user = await prisma.user.findUnique({ where: { email: parsed.data.email } });
+  if (user?.email) {
+    const token = await issueAuthToken(user.id, "PASSWORD_RESET", 60 * 60 * 1000);
+    void sendPasswordResetEmail(user.email, user.name, token).catch((error) => console.error("Password reset email failed:", error));
+  }
+  res.json({ sent: true });
+});
+
+const tokenSchema = z.object({ token: z.string().trim().min(40).max(200) });
+
+authRouter.post("/verify-email", async (req, res) => {
+  const parsed = tokenSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid verification token" });
+  const record = await prisma.authToken.findFirst({ where: { tokenHash: hashToken(parsed.data.token), type: "EMAIL_VERIFICATION", consumedAt: null, expiresAt: { gt: new Date() } } });
+  if (!record) return res.status(400).json({ error: "Invalid or expired verification token" });
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: record.userId }, data: { emailVerifiedAt: new Date() } }),
+    prisma.authToken.update({ where: { id: record.id }, data: { consumedAt: new Date() } }),
+  ]);
+  res.json({ verified: true });
+});
+
+const resetPasswordSchema = tokenSchema.extend({ password: z.string().min(8).max(128) });
+
+authRouter.post("/reset-password", async (req, res) => {
+  const parsed = resetPasswordSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const record = await prisma.authToken.findFirst({ where: { tokenHash: hashToken(parsed.data.token), type: "PASSWORD_RESET", consumedAt: null, expiresAt: { gt: new Date() } } });
+  if (!record) return res.status(400).json({ error: "Invalid or expired password reset token" });
+  const passwordHash = await bcrypt.hash(parsed.data.password, 10);
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: record.userId }, data: { passwordHash } }),
+    prisma.authToken.update({ where: { id: record.id }, data: { consumedAt: new Date() } }),
+  ]);
+  res.json({ reset: true });
 });
 
 authRouter.post("/welcome-email", requireAuth, async (req: AuthedRequest, res) => {
@@ -118,6 +179,10 @@ authRouter.post("/login", async (req, res) => {
 
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) return res.status(401).json({ error: "Invalid credentials" });
+
+  if (process.env.REQUIRE_EMAIL_VERIFICATION === "true" && user.email && !user.emailVerifiedAt) {
+    return res.status(403).json({ error: "Please verify your email before logging in", requiresEmailVerification: true });
+  }
 
   if (user.totpEnabled) {
     if (!totpCode) return res.status(401).json({ error: "2FA code required", requiresTotp: true });
@@ -218,9 +283,14 @@ authRouter.post("/otp/verify", async (req, res) => {
         name,
         [field]: identifier,
         applicationPreference,
+        ...(field === "email" ? { emailVerifiedAt: new Date() } : {}),
         businesses: { create: { role: "OWNER", business: { create: { name: businessName } } } },
       } as any,
     });
+  }
+
+  if (field === "email" && !user.emailVerifiedAt) {
+    user = await prisma.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date() } });
   }
 
   const consumed = await prisma.otp.updateMany({ where: { id: otp.id, consumed: false }, data: { consumed: true } });
