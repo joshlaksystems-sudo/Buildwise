@@ -3,7 +3,7 @@ set -euo pipefail
 backend_url="${1:?backend URL required}"
 frontend_url="${2:?frontend URL required}"
 vercel_bypass_secret="${3:-${VERCEL_AUTOMATION_BYPASS_SECRET:-}}"
-curl_args=(--silent --show-error --retry 3 --max-time 30)
+curl_args=(--silent --show-error --location --retry 3 --max-time 30)
 if [ -n "$vercel_bypass_secret" ]; then
 	curl_args+=(-H "x-vercel-protection-bypass: ${vercel_bypass_secret}")
 fi
