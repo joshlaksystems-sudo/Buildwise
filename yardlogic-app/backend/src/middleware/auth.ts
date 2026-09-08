@@ -70,6 +70,20 @@ export function signInvoiceAccessToken(invoiceId: string) {
   return jwt.sign({ invoiceId, scope: "invoice-pdf" }, JWT_SECRET, { expiresIn: "30d" });
 }
 
+export function signIbimProposalAccessToken(proposalId: string) {
+  return jwt.sign({ proposalId, scope: "ibim-proposal" }, JWT_SECRET, { expiresIn: "14d" });
+}
+
+export function verifyIbimProposalAccessToken(token: string): { proposalId: string } | null {
+  try {
+    const payload = jwt.verify(token, JWT_SECRET) as { proposalId: string; scope: string };
+    if (payload.scope !== "ibim-proposal") return null;
+    return { proposalId: payload.proposalId };
+  } catch {
+    return null;
+  }
+}
+
 export function verifyInvoiceAccessToken(token: string): { invoiceId: string } | null {
   try {
     const payload = jwt.verify(token, JWT_SECRET) as { invoiceId: string; scope: string };

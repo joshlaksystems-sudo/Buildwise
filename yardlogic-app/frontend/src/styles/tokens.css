@@ -101,3 +101,12 @@ input, select {
 }
 
 a { color: var(--ink); }
+
+.auth-frame { overflow: hidden; }
+
+@media (max-width: 720px) {
+  .auth-shell { padding: 0 !important; place-items: stretch !important; }
+  .auth-frame { min-height: 100vh !important; grid-template-columns: 1fr !important; border: 0 !important; }
+  .auth-frame > section:first-child { min-height: 270px; }
+  .auth-form-panel { padding: 28px 22px !important; }
+}

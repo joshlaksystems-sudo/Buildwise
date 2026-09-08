@@ -82,6 +82,11 @@ model Business {
   projects            Project[]
   timeEntries         TimeEntry[]
   subscriptions       Subscription[]
+  ibimWorkflowTasks   IbimWorkflowTask[]
+  ibimMembers         IbimMember[]
+  ibimProposals       IbimProposal[]
+  ibimPolicies        IbimPolicy[]
+  ibimTransactions    IbimTransaction[]
 }
 
 model User {
@@ -90,7 +95,6 @@ model User {
   email        String?  @unique
   phone        String?  @unique
   passwordHash String? // optional — OTP-only accounts have no password
-  applicationPreference String @default("YARDLOGIC") // YARDLOGIC | IBIM
   emailVerifiedAt DateTime?
   // Step 6: two-factor auth. Secret is only set once the user
   // enables 2FA; totpEnabled gates whether login requires a code.
@@ -108,9 +112,118 @@ model User {
   reviewedApprovals ApprovalRequest[] @relation("ApprovalReviewer")
   authTokens    AuthToken[]
   subscriptions Subscription[]
+  ibimWorkflowTasks IbimWorkflowTask[] @relation("IbimTaskAssignee")
   assignedTasks Task[] @relation("TaskAssignee")
   projectClients Project[] @relation("ProjectClient")
   timeEntries TimeEntry[]
+}
+
+// ---------- iBIM insurance mutual foundation ----------
+
+model IbimMember {
+  id             String   @id @default(uuid())
+  businessId     String
+  externalRef    String?
+  legalName      String
+  tradingName    String?
+  contactName    String?
+  email          String?
+  phone          String?
+  address        String?
+  status         String   @default("PROSPECT") // PROSPECT | ACTIVE | INACTIVE
+  source         String?  // FORM | IMPORT | MANUAL
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  business       Business @relation(fields: [businessId], references: [id])
+  proposals      IbimProposal[]
+  policies       IbimPolicy[]
+  workflowTasks  IbimWorkflowTask[]
+  @@index([businessId, status])
+  @@index([businessId, externalRef])
+}
+
+model IbimProposal {
+  id                String   @id @default(uuid())
+  businessId        String
+  memberId          String?
+  previousProposalId String?
+  type              String   // NEW_BUSINESS | RENEWAL
+  status            String   @default("DRAFT") // DRAFT | SUBMITTED | IN_REVIEW | QUOTED | BOUND | DECLINED
+  formVersion       String?
+  data              Json
+  validationIssues  Json?
+  submittedAt      DateTime?
+  effectiveDate     DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  business          Business @relation(fields: [businessId], references: [id])
+  member            IbimMember? @relation(fields: [memberId], references: [id])
+  previousProposal  IbimProposal? @relation("IbimRenewalChain", fields: [previousProposalId], references: [id])
+  renewals          IbimProposal[] @relation("IbimRenewalChain")
+  policies          IbimPolicy[]
+  workflowTasks     IbimWorkflowTask[]
+  @@index([businessId, status, type])
+  @@index([memberId, createdAt])
+}
+
+model IbimPolicy {
+  id                String   @id @default(uuid())
+  businessId        String
+  memberId          String?
+  proposalId        String?
+  policyNumber      String
+  insurerName       String?
+  externalPolicyRef String?
+  status            String   @default("ACTIVE") // QUOTED | ACTIVE | LAPSED | CANCELLED
+  inceptionDate     DateTime?
+  renewalDate       DateTime?
+  premium           Decimal? @db.Decimal(12, 2)
+  commission        Decimal? @db.Decimal(12, 2)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  business          Business @relation(fields: [businessId], references: [id])
+  member            IbimMember? @relation(fields: [memberId], references: [id])
+  proposal          IbimProposal? @relation(fields: [proposalId], references: [id])
+  transactions      IbimTransaction[]
+  workflowTasks     IbimWorkflowTask[]
+  @@unique([businessId, policyNumber])
+  @@index([businessId, renewalDate, status])
+}
+
+model IbimWorkflowTask {
+  id           String   @id @default(uuid())
+  businessId   String
+  memberId     String?
+  proposalId   String?
+  policyId     String?
+  assignedToId String?
+  type         String   // PROSPECTING | NEW_BUSINESS | RENEWAL | CHASER | POST_BIND
+  status       String   @default("OPEN") // OPEN | IN_PROGRESS | DONE | CANCELLED
+  dueAt        DateTime?
+  note         String?
+  completedAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  business     Business @relation(fields: [businessId], references: [id])
+  member       IbimMember? @relation(fields: [memberId], references: [id])
+  proposal     IbimProposal? @relation(fields: [proposalId], references: [id])
+  policy       IbimPolicy? @relation(fields: [policyId], references: [id])
+  assignedTo   User? @relation("IbimTaskAssignee", fields: [assignedToId], references: [id])
+  @@index([businessId, status, dueAt])
+}
+
+model IbimTransaction {
+  id            String   @id @default(uuid())
+  businessId    String
+  policyId      String
+  type          String   // PREMIUM | PAYMENT | REBATE | COMMISSION
+  amount        Decimal  @db.Decimal(12, 2)
+  transactionDate DateTime
+  reference     String?
+  createdAt     DateTime @default(now())
+  business      Business @relation(fields: [businessId], references: [id])
+  policy        IbimPolicy @relation(fields: [policyId], references: [id])
+  @@index([businessId, transactionDate, type])
 }
 
 // Short-lived one-time codes for email/mobile login. A row is

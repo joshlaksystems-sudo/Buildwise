@@ -27,6 +27,10 @@ const Operations = lazy(() => import("./pages/Operations").then((module) => ({ d
 const Growth = lazy(() => import("./pages/Growth").then((module) => ({ default: module.Growth })));
 const Approvals = lazy(() => import("./pages/Approvals").then((module) => ({ default: module.Approvals })));
 
+const applicationId = import.meta.env.VITE_APPLICATION_ID;
+const isIbim = applicationId === "IBIM";
+const isYardLogic = applicationId === "YARDLOGIC";
+
 function isAuthed() {
   return Boolean(localStorage.getItem("token"));
 }
@@ -35,19 +39,19 @@ function businessId() {
   return localStorage.getItem("businessId") || "";
 }
 
-function preferredApplication() {
-  return localStorage.getItem("applicationPreference") || "YARDLOGIC";
-}
-
 export default function App() {
+  if (!isIbim && !isYardLogic) {
+    return <div style={{ padding: 32 }}>Application configuration is missing.</div>;
+  }
+
   return (
-    <Suspense fallback={<div style={{ padding: 32 }}>Loading YardLogic...</div>}>
+    <Suspense fallback={<div style={{ padding: 32 }}>Loading workspace...</div>}>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
-        <Route path="/ibim" element={isAuthed() && preferredApplication() === "IBIM" ? <IbimWorkspace /> : <Navigate to={isAuthed() ? "/" : "/login"} replace />} />
-        <Route path="/" element={isAuthed() ? <Layout /> : <Navigate to="/login" />}>
+        {isIbim && <Route path="/ibim" element={isAuthed() ? <IbimWorkspace /> : <Navigate to="/login" replace />} />}
+        {isYardLogic && <Route path="/" element={isAuthed() ? <Layout /> : <Navigate to="/login" />}>
           <Route index element={<Dashboard />} />
           <Route path="invoices" element={<Invoices />} />
           <Route path="items" element={<Items />} />
@@ -68,7 +72,7 @@ export default function App() {
           <Route path="growth" element={<Growth />} />
           <Route path="approvals" element={<Approvals />} />
           <Route path="ask" element={<Ask />} />
-        </Route>
+        </Route>}
       </Routes>
     </Suspense>
   );

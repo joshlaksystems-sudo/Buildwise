@@ -930,3 +930,91 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.notification_preferences` (
 )
 CLUSTER BY business_id, user_id;
 
+-- ---------- iBIM insurance mutual foundation ----------
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.ibim_members` (
+  id            STRING NOT NULL,
+  business_id   STRING NOT NULL,
+  external_ref  STRING,
+  legal_name    STRING NOT NULL,
+  trading_name  STRING,
+  contact_name  STRING,
+  email         STRING,
+  phone         STRING,
+  address       STRING,
+  status        STRING DEFAULT 'PROSPECT' NOT NULL,
+  source        STRING,
+  created_at    TIMESTAMP NOT NULL,
+  updated_at    TIMESTAMP
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, status;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.ibim_proposals` (
+  id                   STRING NOT NULL,
+  business_id          STRING NOT NULL,
+  member_id            STRING,
+  previous_proposal_id STRING,
+  type                 STRING NOT NULL,
+  status               STRING DEFAULT 'DRAFT' NOT NULL,
+  form_version         STRING,
+  data                 JSON NOT NULL,
+  validation_issues    JSON,
+  submitted_at         TIMESTAMP,
+  effective_date       TIMESTAMP,
+  created_at            TIMESTAMP NOT NULL,
+  updated_at            TIMESTAMP
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, status, type;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.ibim_policies` (
+  id                  STRING NOT NULL,
+  business_id         STRING NOT NULL,
+  member_id           STRING,
+  proposal_id         STRING,
+  policy_number       STRING NOT NULL,
+  insurer_name        STRING,
+  external_policy_ref STRING,
+  status              STRING DEFAULT 'ACTIVE' NOT NULL,
+  inception_date      TIMESTAMP,
+  renewal_date        TIMESTAMP,
+  premium             NUMERIC(12, 2),
+  commission          NUMERIC(12, 2),
+  created_at          TIMESTAMP NOT NULL,
+  updated_at          TIMESTAMP
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, status;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.ibim_workflow_tasks` (
+  id             STRING NOT NULL,
+  business_id    STRING NOT NULL,
+  member_id      STRING,
+  proposal_id    STRING,
+  policy_id      STRING,
+  assigned_to_id STRING,
+  type           STRING NOT NULL,
+  status         STRING DEFAULT 'OPEN' NOT NULL,
+  due_at         TIMESTAMP,
+  note           STRING,
+  completed_at   TIMESTAMP,
+  created_at     TIMESTAMP NOT NULL,
+  updated_at     TIMESTAMP
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY business_id, status, type;
+
+CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.ibim_transactions` (
+  id                 STRING NOT NULL,
+  business_id        STRING NOT NULL,
+  policy_id          STRING NOT NULL,
+  type               STRING NOT NULL,
+  amount             NUMERIC(12, 2) NOT NULL,
+  transaction_date   TIMESTAMP NOT NULL,
+  reference          STRING,
+  created_at         TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(transaction_date)
+CLUSTER BY business_id, type;
+

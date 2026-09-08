@@ -79,13 +79,12 @@ const signupSchema = z.object({
   identifier: identifierSchema,
   password: z.string().min(8).max(128),
   businessName: z.string().trim().min(2).max(120),
-  applicationPreference: z.enum(["YARDLOGIC", "IBIM"]).default("YARDLOGIC"),
 });
 
 authRouter.post("/signup", async (req, res) => {
   const parsed = signupSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const { name, identifier, password, businessName, applicationPreference } = parsed.data;
+  const { name, identifier, password, businessName } = parsed.data;
   const field = isEmail(identifier) ? "email" : "phone";
 
   const existing = await prisma.user.findFirst({ where: { [field]: identifier } as any });
@@ -97,7 +96,6 @@ authRouter.post("/signup", async (req, res) => {
       name,
       [field]: identifier,
       passwordHash,
-      applicationPreference,
       businesses: { create: { role: "OWNER", business: { create: { name: businessName } } } },
     } as any,
   });
@@ -107,7 +105,7 @@ authRouter.post("/signup", async (req, res) => {
     const verificationToken = await issueAuthToken(user.id, "EMAIL_VERIFICATION", 24 * 60 * 60 * 1000);
     void sendVerificationEmail(identifier, name, verificationToken).catch((error) => console.error("Verification email failed:", error));
   }
-  res.status(201).json({ token: signToken(user.id), user: { id: user.id, name: user.name, applicationPreference: user.applicationPreference }, applicationPreference: user.applicationPreference, businesses: full!.businesses });
+  res.status(201).json({ token: signToken(user.id), user: { id: user.id, name: user.name }, businesses: full!.businesses });
 });
 
 const forgotPasswordSchema = z.object({ email: z.string().trim().email().transform((value) => value.toLowerCase()) });
@@ -118,7 +116,15 @@ authRouter.post("/forgot-password", async (req, res) => {
   const user = await prisma.user.findUnique({ where: { email: parsed.data.email } });
   if (user?.email) {
     const token = await issueAuthToken(user.id, "PASSWORD_RESET", 60 * 60 * 1000);
-    void sendPasswordResetEmail(user.email, user.name, token).catch((error) => console.error("Password reset email failed:", error));
+    try {
+      const delivered = await sendPasswordResetEmail(user.email, user.name, token);
+      if (!delivered) {
+        return res.status(503).json({ error: "Password reset email is not configured" });
+      }
+    } catch (error) {
+      console.error("Password reset email failed:", error);
+      return res.status(502).json({ error: "Password reset email could not be sent" });
+    }
   }
   res.json({ sent: true });
 });
@@ -191,7 +197,7 @@ authRouter.post("/login", async (req, res) => {
   }
 
   const full = await userWithBusinesses(user.id);
-  res.json({ token: signToken(user.id), user: { id: user.id, name: user.name, applicationPreference: user.applicationPreference }, applicationPreference: user.applicationPreference, businesses: full!.businesses });
+  res.json({ token: signToken(user.id), user: { id: user.id, name: user.name }, businesses: full!.businesses });
 });
 
 // ---------- Two-factor auth (Step 6 hardening) ----------
@@ -257,13 +263,12 @@ const otpVerifySchema = z.object({
   // only needed the first time — creates the account + first business
   name: z.string().optional(),
   businessName: z.string().optional(),
-  applicationPreference: z.enum(["YARDLOGIC", "IBIM"]).default("YARDLOGIC"),
 });
 
 authRouter.post("/otp/verify", async (req, res) => {
   const parsed = otpVerifySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const { identifier, code, name, businessName, applicationPreference } = parsed.data;
+  const { identifier, code, name, businessName } = parsed.data;
 
   const otp = await prisma.otp.findFirst({
     where: { target: identifier, code, consumed: false, expiresAt: { gt: new Date() } },
@@ -282,7 +287,6 @@ authRouter.post("/otp/verify", async (req, res) => {
       data: {
         name,
         [field]: identifier,
-        applicationPreference,
         ...(field === "email" ? { emailVerifiedAt: new Date() } : {}),
         businesses: { create: { role: "OWNER", business: { create: { name: businessName } } } },
       } as any,
@@ -297,5 +301,5 @@ authRouter.post("/otp/verify", async (req, res) => {
   if (consumed.count !== 1) return res.status(401).json({ error: "Invalid or already-used code" });
 
   const full = await userWithBusinesses(user.id);
-  res.json({ token: signToken(user.id), user: { id: user.id, name: user.name, applicationPreference: user.applicationPreference }, applicationPreference: user.applicationPreference, businesses: full!.businesses });
+  res.json({ token: signToken(user.id), user: { id: user.id, name: user.name }, businesses: full!.businesses });
 });

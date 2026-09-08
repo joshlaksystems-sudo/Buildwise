@@ -36,6 +36,7 @@ jobs:
       - name: Validate required deployment secrets
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          APPLICATION_ID: ${{ secrets.APPLICATION_ID }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
           GOOGLE_CLOUD_PROJECT_ID: ${{ secrets.GOOGLE_CLOUD_PROJECT_ID }}
@@ -48,6 +49,7 @@ jobs:
           VERCEL_FRONTEND_PROJECT_ID: ${{ secrets.VERCEL_FRONTEND_PROJECT_ID }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
           VERTEX_AI_ENABLE: ${{ secrets.VERTEX_AI_ENABLE }}
           VERTEX_AI_LOCATION: ${{ secrets.VERTEX_AI_LOCATION }}
           VERTEX_AI_MODEL_ID: ${{ secrets.VERTEX_AI_MODEL_ID }}
@@ -72,7 +74,7 @@ jobs:
           MSG91_TEMPLATE_ID: ${{ secrets.MSG91_TEMPLATE_ID }}
         run: |
           set -euo pipefail
-          for name in DATABASE_URL JWT_SECRET GCP_SERVICE_ACCOUNT_KEY GOOGLE_CLOUD_PROJECT_ID GCS_BUCKET BIGQUERY_DATASET BIGQUERY_REGION VERCEL_TOKEN VERCEL_ORG_ID VERCEL_BACKEND_PROJECT_ID VERCEL_FRONTEND_PROJECT_ID VERCEL_AUTOMATION_BYPASS_SECRET CORS_ORIGINS VERTEX_AI_ENABLE VERTEX_AI_LOCATION VERTEX_AI_MODEL_ID GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET GMAIL_REFRESH_TOKEN GMAIL_FROM_EMAIL META_WHATSAPP_VERIFY_TOKEN META_WHATSAPP_ACCESS_TOKEN META_WHATSAPP_PHONE_NUMBER_ID; do
+          for name in DATABASE_URL APPLICATION_ID JWT_SECRET GCP_SERVICE_ACCOUNT_KEY GOOGLE_CLOUD_PROJECT_ID GCS_BUCKET BIGQUERY_DATASET BIGQUERY_REGION VERCEL_TOKEN VERCEL_ORG_ID VERCEL_BACKEND_PROJECT_ID VERCEL_FRONTEND_PROJECT_ID VERCEL_AUTOMATION_BYPASS_SECRET CORS_ORIGINS FRONTEND_URL VERTEX_AI_ENABLE VERTEX_AI_LOCATION VERTEX_AI_MODEL_ID GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET GMAIL_REFRESH_TOKEN GMAIL_FROM_EMAIL META_WHATSAPP_VERIFY_TOKEN META_WHATSAPP_ACCESS_TOKEN META_WHATSAPP_PHONE_NUMBER_ID; do
             if [ -z "${!name:-}" ]; then
               echo "Missing required GitHub secret: $name"
               exit 1
@@ -162,6 +164,7 @@ jobs:
         id: deploy-backend
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          APPLICATION_ID: ${{ secrets.APPLICATION_ID }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           PRODUCT_NAME: ${{ secrets.PRODUCT_NAME }}
           GOOGLE_CLOUD_PROJECT_ID: ${{ secrets.GOOGLE_CLOUD_PROJECT_ID }}
@@ -211,6 +214,7 @@ jobs:
             --scope="${{ secrets.VERCEL_ORG_ID }}" \
             --project="${{ secrets.VERCEL_BACKEND_PROJECT_ID }}" \
             --env "DATABASE_URL=$DATABASE_URL" \
+            --env "APPLICATION_ID=$APPLICATION_ID" \
             --env "JWT_SECRET=$JWT_SECRET" \
             --env "NODE_ENV=production" \
             --env "PRODUCT_NAME=$PRODUCT_NAME" \
@@ -302,12 +306,15 @@ jobs:
 
       - name: Type-check & build
         env:
-          VITE_API_URL: https://yardlogic-backend.vercel.app
+          VITE_API_URL: ${{ needs.backend.outputs.deployment_url }}
+          VITE_APPLICATION_ID: ${{ secrets.APPLICATION_ID }}
           VITE_COMPANY_NAME: ${{ secrets.VITE_COMPANY_NAME }}
           VITE_PRODUCT_NAME: ${{ secrets.VITE_PRODUCT_NAME }}
           VITE_GCS_BUCKET: ${{ secrets.VITE_GCS_BUCKET }}
           VITE_GCP_PROJECT_ID: ${{ secrets.VITE_GCP_PROJECT_ID }}
-        run: npm run build
+        run: |
+          test -n "$VITE_APPLICATION_ID"
+          npm run build
 
       - name: Clean stale Vercel config
         run: rm -rf .vercel
@@ -318,7 +325,8 @@ jobs:
             --token="${{ secrets.VERCEL_TOKEN }}" \
             --scope="${{ secrets.VERCEL_ORG_ID }}" \
             --project="${{ secrets.VERCEL_FRONTEND_PROJECT_ID }}" \
-            --build-env "VITE_API_URL=https://yardlogic-backend.vercel.app" \
+            --build-env "VITE_API_URL=${{ needs.backend.outputs.deployment_url }}" \
+            --build-env "VITE_APPLICATION_ID=${{ secrets.APPLICATION_ID }}" \
             --build-env "VITE_COMPANY_NAME=${{ secrets.VITE_COMPANY_NAME }}" \
             --build-env "VITE_PRODUCT_NAME=${{ secrets.VITE_PRODUCT_NAME }}" \
             --build-env "VITE_GCS_BUCKET=${{ secrets.VITE_GCS_BUCKET }}" \

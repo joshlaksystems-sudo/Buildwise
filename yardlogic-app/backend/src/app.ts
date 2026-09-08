@@ -29,13 +29,17 @@ import { operationsRouter } from "./routes/operations";
 import { growthRouter } from "./routes/growth";
 import { approvalsRouter } from "./routes/approvals";
 import { whatsappRouter } from "./routes/whatsapp";
-import { ibimRouter } from "./routes/ibim";
+import { ibimPublicRouter, ibimRouter } from "./routes/ibim";
 import { billingRouter } from "./routes/billing";
 import { prisma } from "./lib/prisma";
 import crypto from "node:crypto";
 import { reportUnhandledError } from "./services/monitoring";
 
 const app = express();
+const applicationId = process.env.APPLICATION_ID;
+if (process.env.NODE_ENV === "production" && applicationId !== "IBIM" && applicationId !== "YARDLOGIC") {
+	throw new Error("APPLICATION_ID must be configured in production");
+}
 const allowedOrigins = (process.env.CORS_ORIGINS || "*")
 	.split(",")
 	.map((origin) => origin.trim())
@@ -60,7 +64,7 @@ app.use((req, res, next) => {
 });
 initializeGoogleCloud();
 
-app.get("/", (_req, res) => res.json({ ok: true, service: "yardlogic-backend" }));
+app.get("/", (_req, res) => res.json({ ok: true, service: applicationId }));
 app.get("/health", (_req, res) => res.json({ ok: true }));
 app.get("/health/ready", async (_req, res) => {
 	try {
@@ -88,6 +92,7 @@ app.get("/health/google-cloud", async (_req, res) => {
 app.use(whatsappRouter);
 app.use("/auth", authRouter);
 app.use("/business", businessRouter);
+if (applicationId === "YARDLOGIC") {
 app.use("/items", itemsRouter);
 app.use("/invoices", invoicesRouter);
 app.use("/purchase-bills", purchaseBillsRouter);
@@ -111,8 +116,12 @@ app.use("/advanced", advancedWorkflowsRouter);
 app.use("/operations", operationsRouter);
 app.use("/growth", growthRouter);
 app.use("/approvals", approvalsRouter);
-app.use("/ibim", ibimRouter);
 app.use("/billing", billingRouter);
+}
+if (applicationId === "IBIM") {
+	app.use("/ibim/public", ibimPublicRouter);
+app.use("/ibim", ibimRouter);
+}
 
 app.use((error: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
 	void reportUnhandledError(error, { requestId: res.locals.requestId, path: req.path, method: req.method });

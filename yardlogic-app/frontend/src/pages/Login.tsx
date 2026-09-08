@@ -6,11 +6,10 @@ import { initSync } from "../lib/syncManager";
 function storeSession(data: any) {
   localStorage.setItem("token", data.token);
   localStorage.setItem("businesses", JSON.stringify(data.businesses));
-  localStorage.setItem("applicationPreference", data.applicationPreference || data.user?.applicationPreference || "YARDLOGIC");
+  localStorage.removeItem("applicationPreference");
   const first = data.businesses?.[0]?.business?.id ?? data.businesses?.[0]?.businessId;
   if (first) localStorage.setItem("businessId", first);
 }
-
 export function Login() {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [identifier, setIdentifier] = useState("");
@@ -19,7 +18,6 @@ export function Login() {
   const [requiresTotp, setRequiresTotp] = useState(false);
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
-  const [applicationPreference, setApplicationPreference] = useState<"YARDLOGIC" | "IBIM">("YARDLOGIC");
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotMessage, setForgotMessage] = useState("");
   const [error, setError] = useState("");
@@ -53,15 +51,14 @@ export function Login() {
       const path = mode === "login" ? "/auth/login" : "/auth/signup";
       const body = mode === "login"
         ? { identifier: normalizedIdentifier, password, ...(totpCode ? { totpCode } : {}) }
-        : { identifier: normalizedIdentifier, password, name: name.trim(), businessName: businessName.trim(), applicationPreference };
+        : { identifier: normalizedIdentifier, password, name: name.trim(), businessName: businessName.trim() };
       const data = await api<any>(path, { method: "POST", body: JSON.stringify(body) });
       storeSession(data);
       initSync();
       if (mode === "register") {
         void api("/auth/welcome-email", { method: "POST" }).catch(() => {});
       }
-      const selectedApplication = mode === "register" ? applicationPreference : data.applicationPreference;
-      navigate(selectedApplication === "IBIM" ? "/ibim" : "/");
+      navigate(import.meta.env.VITE_APPLICATION_ID === "IBIM" ? "/ibim" : "/");
     } catch (err: any) {
       if (mode === "login" && err.message === "2FA code required") {
         setRequiresTotp(true);
@@ -84,9 +81,23 @@ export function Login() {
   }
 
   return (
-    <div style={{ display: "grid", placeItems: "center", minHeight: "100vh", background: "var(--paper)" }}>
-      <div style={{ width: 380, background: "var(--paper-raised)", padding: 32, border: "1px solid var(--rule)" }}>
-        <h1 style={{ fontSize: 24, marginBottom: 6 }}>{import.meta.env.VITE_PRODUCT_NAME || "Buildwise"}</h1>
+    <div className="auth-shell" style={{ minHeight: "100vh", padding: 20, display: "grid", placeItems: "center", background: "#142b2a url('https://images.unsplash.com/photo-1497366811353-6870744d04b2?auto=format&fit=crop&w=2200&q=85') center / cover fixed" }}>
+      <div className="auth-frame" style={{ width: "min(1040px, 100%)", minHeight: 650, display: "grid", gridTemplateColumns: "minmax(0, 1.1fr) minmax(340px, .9fr)", background: "rgba(12, 29, 28, .88)", border: "1px solid rgba(255,255,255,.22)", boxShadow: "0 24px 80px rgba(0,0,0,.28)" }}>
+        <section style={{ padding: "clamp(28px, 6vw, 72px)", color: "#f4f0e7", display: "flex", flexDirection: "column", justifyContent: "space-between", background: "linear-gradient(145deg, rgba(17,61,58,.88), rgba(13,38,38,.68))" }}>
+          <div>
+            <p style={{ margin: 0, color: "#f0bf67", fontSize: 12, letterSpacing: ".16em", textTransform: "uppercase" }}>Operations, made visible</p>
+            <h1 style={{ maxWidth: 500, margin: "24px 0 16px", fontSize: "clamp(36px, 5vw, 64px)", lineHeight: 1.02, letterSpacing: "-1px" }}>{import.meta.env.VITE_PRODUCT_NAME || "Buildwise"}<span style={{ color: "#f0bf67" }}>.</span></h1>
+            <p style={{ maxWidth: 430, margin: 0, color: "rgba(244,240,231,.76)", fontSize: 16, lineHeight: 1.7 }}>A calmer command centre for the work that keeps your business moving.</p>
+          </div>
+          <div style={{ maxWidth: 420, paddingTop: 48 }}>
+            <p style={{ margin: 0, color: "rgba(244,240,231,.58)", fontSize: 12, textTransform: "uppercase", letterSpacing: ".12em" }}>One workspace</p>
+            <p style={{ margin: "8px 0 0", color: "rgba(244,240,231,.84)", fontSize: 14, lineHeight: 1.6 }}>Keep decisions close to the data, teams aligned, and the next action clear.</p>
+          </div>
+        </section>
+        <section className="auth-form-panel" style={{ padding: "clamp(26px, 5vw, 48px)", background: "rgba(250,249,244,.97)", color: "var(--ink)" }}>
+        <div style={{ maxWidth: 380, margin: "0 auto" }}>
+        <p style={{ margin: "0 0 8px", color: "var(--gold)", fontSize: 11, fontWeight: 700, letterSpacing: ".14em", textTransform: "uppercase" }}>{mode === "login" ? "Welcome back" : "Start here"}</p>
+        <h2 style={{ fontSize: 27, marginBottom: 6 }}>{mode === "login" ? "Sign in to continue" : "Create your workspace"}</h2>
         <p style={{ color: "var(--ink-soft)", fontSize: 13, marginBottom: 24 }}>
           {mode === "login" ? "Log in with your email and password." : "Create your account with email and password."}
         </p>
@@ -99,7 +110,6 @@ export function Login() {
         </div> : <form onSubmit={submit}>
           {mode === "register" && <Field label="Your name" value={name} onChange={setName} />}
           {mode === "register" && <Field label="Business name" value={businessName} onChange={setBusinessName} />}
-          {mode === "register" && <PreferenceChoice value={applicationPreference} onChange={setApplicationPreference} />}
           <Field label="Email or mobile number" value={identifier} onChange={setIdentifier} />
           <Field label="Password" type="password" value={password} onChange={setPassword} />
           {mode === "login" && requiresTotp && <Field label="Authenticator code" value={totpCode} onChange={setTotpCode} />}
@@ -119,32 +129,17 @@ export function Login() {
         >
           {forgotMode ? "Back to login" : mode === "login" ? "Create a new account" : "Already have an account? Log in"}
         </button>
+        </div>
+        </section>
       </div>
     </div>
   );
 }
-
 function Field({ label, type = "text", value, onChange }: { label: string; type?: string; value: string; onChange: (v: string) => void }) {
   return (
     <label style={{ display: "block", marginBottom: 14, fontSize: 13, color: "var(--ink-soft)" }}>
       {label}
       <input type={type} value={value} onChange={(e) => onChange(e.target.value)} required minLength={type === "password" ? 8 : undefined} style={{ display: "block", width: "100%", marginTop: 4 }} />
     </label>
-  );
-}
-
-function PreferenceChoice({ value, onChange }: { value: "YARDLOGIC" | "IBIM"; onChange: (value: "YARDLOGIC" | "IBIM") => void }) {
-  return (
-    <fieldset style={{ border: 0, padding: 0, margin: "0 0 14px" }}>
-      <legend style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 6 }}>Choose your workspace</legend>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        {(["YARDLOGIC", "IBIM"] as const).map((option) => (
-          <button key={option} type="button" onClick={() => onChange(option)} style={{ padding: "12px 8px", textAlign: "left", border: `1px solid ${value === option ? "var(--ink)" : "var(--rule)"}`, background: value === option ? "var(--paper)" : "var(--paper-raised)" }}>
-            <strong style={{ display: "block", fontSize: 12 }}>{option === "IBIM" ? "IBim Consulting" : "YardLogic ERP"}</strong>
-            <span style={{ display: "block", marginTop: 4, color: "var(--ink-soft)", fontSize: 10 }}>{option === "IBIM" ? "Tekla, projects & training" : "Billing, stock & finance"}</span>
-          </button>
-        ))}
-      </div>
-    </fieldset>
   );
 }
