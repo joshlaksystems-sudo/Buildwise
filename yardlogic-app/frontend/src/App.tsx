@@ -27,6 +27,7 @@ const BusinessProfile = lazy(() => import("./pages/BusinessProfile").then((modul
 const Operations = lazy(() => import("./pages/Operations").then((module) => ({ default: module.Operations })));
 const Growth = lazy(() => import("./pages/Growth").then((module) => ({ default: module.Growth })));
 const Approvals = lazy(() => import("./pages/Approvals").then((module) => ({ default: module.Approvals })));
+const StaffManagement = lazy(() => import("./pages/StaffManagement").then((module) => ({ default: module.StaffManagement })));
 
 const applicationId = import.meta.env.VITE_APPLICATION_ID;
 const isMultiApplication = !applicationId || applicationId === "ALL";
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="reports" element={<Reports />} />
           <Route path="bank" element={<BankStatements businessId={businessId()} />} />
           <Route path="business-profile" element={<BusinessProfile businessId={businessId()} />} />
+          <Route path="staff-management" element={<StaffManagement />} />
           <Route path="operations" element={<Operations />} />
           <Route path="growth" element={<Growth />} />
           <Route path="approvals" element={<Approvals />} />
