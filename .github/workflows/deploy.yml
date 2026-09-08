@@ -365,7 +365,7 @@ jobs:
 
       - name: Type-check & build
         env:
-          VITE_API_URL: ${{ needs.backend.outputs.deployment_url || secrets.BACKEND_PRODUCTION_URL }}
+          VITE_API_URL: ${{ secrets.BACKEND_PRODUCTION_URL || needs.backend.outputs.deployment_url }}
           VITE_APPLICATION_ID: ${{ secrets.APPLICATION_ID || vars.APPLICATION_ID }}
           VITE_COMPANY_NAME: ${{ secrets.VITE_COMPANY_NAME }}
           VITE_PRODUCT_NAME: ${{ secrets.VITE_PRODUCT_NAME }}
@@ -391,7 +391,7 @@ jobs:
       - name: Deploy frontend to Vercel
         env:
           APPLICATION_ID: ${{ secrets.APPLICATION_ID || vars.APPLICATION_ID }}
-          VITE_API_URL: ${{ needs.backend.outputs.deployment_url || secrets.BACKEND_PRODUCTION_URL }}
+          VITE_API_URL: ${{ secrets.BACKEND_PRODUCTION_URL || needs.backend.outputs.deployment_url }}
         run: |
           test -n "$VITE_API_URL"
           VITE_API_URL="${VITE_API_URL%/}"
