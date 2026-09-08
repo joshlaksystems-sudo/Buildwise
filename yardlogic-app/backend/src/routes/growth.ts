@@ -54,7 +54,8 @@ growthRouter.post("/campaigns/:id/send-email", async (req: AuthedRequest, res) =
   let sentCount = 0;
   for (const customer of customers) {
     try {
-      if (await sendGmailEmail(customer.email!, "A message from your business", `Hello ${customer.name},\n\n${campaign.message}\n\nRegards`)) sentCount += 1;
+      const messageId = await sendGmailEmail(customer.email!, "A message from your business", `Hello ${customer.name},\n\n${campaign.message}\n\nRegards`);
+      if (messageId) sentCount += 1;
     } catch (error) {
       console.error("Campaign email failed:", error);
     }

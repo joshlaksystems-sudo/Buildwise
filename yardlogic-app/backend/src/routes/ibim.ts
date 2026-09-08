@@ -390,9 +390,9 @@ ibimRouter.post("/tasks/:id/chase", requireRole("OWNER", "ADMIN", "STAFF"), asyn
   const subject = typeof req.body?.subject === "string" && req.body.subject.trim() ? req.body.subject.trim() : "Action required for your insurance proposal";
   const message = typeof req.body?.message === "string" && req.body.message.trim() ? req.body.message.trim() : "Please review and complete the outstanding insurance information requested by your broker.";
   try {
-    const delivered = await sendGmailEmail(task.member.email, subject, message);
-    if (!delivered) return res.status(503).json({ error: "Email provider is not configured" });
-    const delivery = await prisma.ibimEmailDelivery.create({ data: { businessId: req.businessId!, memberId: task.memberId, taskId: task.id, recipient: task.member.email, subject, kind: "CHASER", status: "SENT" } });
+    const messageId = await sendGmailEmail(task.member.email, subject, message);
+    if (!messageId) return res.status(503).json({ error: "Email provider is not configured" });
+    const delivery = await prisma.ibimEmailDelivery.create({ data: { businessId: req.businessId!, memberId: task.memberId, taskId: task.id, recipient: task.member.email, subject, kind: "CHASER", status: "SENT", providerRef: messageId } });
     res.json({ sent: true, deliveryId: delivery.id });
   } catch (error) {
     await prisma.ibimEmailDelivery.create({ data: { businessId: req.businessId!, memberId: task.memberId, taskId: task.id, recipient: task.member.email, subject, kind: "CHASER", status: "FAILED", error: error instanceof Error ? error.message : "Email send failed" } });

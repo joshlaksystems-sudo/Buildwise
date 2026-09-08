@@ -330,8 +330,23 @@ model IbimEmailDelivery {
   sentAt      DateTime @default(now())
   deliveredAt DateTime?
   business    Business @relation(fields: [businessId], references: [id])
+  events      IbimEmailWebhookEvent[]
   @@index([businessId, status, sentAt])
   @@index([businessId, memberId, sentAt])
+  @@index([providerRef])
+}
+
+model IbimEmailWebhookEvent {
+  id          String   @id @default(uuid())
+  deliveryId  String
+  provider    String   // razormail | sendgrid | mailgun
+  eventType   String   // send | delivery | bounce | open | click | complaint
+  recipient   String
+  payload     Json
+  processedAt DateTime @default(now())
+  delivery    IbimEmailDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  @@index([deliveryId, processedAt])
+  @@index([provider, eventType])
 }
 
 model IbimReconciliation {

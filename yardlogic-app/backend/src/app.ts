@@ -29,6 +29,7 @@ import { operationsRouter } from "./routes/operations";
 import { growthRouter } from "./routes/growth";
 import { approvalsRouter } from "./routes/approvals";
 import { whatsappRouter } from "./routes/whatsapp";
+import { emailWebhooksRouter } from "./routes/email-webhooks";
 import { ibimPublicRouter, ibimRouter } from "./routes/ibim";
 import { billingRouter } from "./routes/billing";
 import { prisma } from "./lib/prisma";
@@ -101,6 +102,7 @@ app.get("/health/google-cloud", async (_req, res) => {
 	res.status(ready ? 200 : 503).json({ ok: ready, ...status, bigQueryConnection });
 });
 app.use(whatsappRouter);
+app.use("/webhooks", emailWebhooksRouter);
 app.use("/auth", authRouter);
 app.use("/business", businessRouter);
 if (applicationId === "YARDLOGIC" || applicationId === "ALL") {

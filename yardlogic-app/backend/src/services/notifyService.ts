@@ -133,7 +133,9 @@ export async function sendGmailEmail(email: string, subject: string, message: st
       signal: AbortSignal.timeout(8000),
     });
     if (!response.ok) throw new Error(`Gmail send failed: ${response.status} ${await response.text()}`);
-    return true;
+    const result = await response.json() as { id?: string };
+    // Return Gmail message ID for webhook tracking
+    return result.id || "gmail-sent";
   }
 
   if (process.env.NODE_ENV === "production") {
@@ -141,7 +143,8 @@ export async function sendGmailEmail(email: string, subject: string, message: st
   }
 
   console.log(`[dev] Would email ${subject} to ${email}`);
-  return false;
+  // Return a dev message ID for local testing
+  return `dev-${Date.now()}`;
 }
 
 export async function sendWelcomeEmail(email: string, name: string) {

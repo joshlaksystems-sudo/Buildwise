@@ -126,8 +126,8 @@ authRouter.post("/signup", async (req, res) => {
   if (field === "email") {
     const verificationToken = await issueAuthToken(user.id, "EMAIL_VERIFICATION", 24 * 60 * 60 * 1000);
     try {
-      const delivered = await sendVerificationEmail(identifier, name, verificationToken);
-      if (!delivered) return res.status(503).json({ error: "Verification email is not configured" });
+      const messageId = await sendVerificationEmail(identifier, name, verificationToken);
+      if (!messageId) return res.status(503).json({ error: "Verification email is not configured" });
     } catch (error) {
       console.error("Verification email failed:", error);
       return res.status(502).json({ error: "Verification email could not be sent" });
@@ -143,8 +143,8 @@ authRouter.post("/resend-verification", async (req, res) => {
   if (!user?.email || user.emailVerifiedAt) return res.json({ sent: true });
   const verificationToken = await issueAuthToken(user.id, "EMAIL_VERIFICATION", 24 * 60 * 60 * 1000);
   try {
-    const delivered = await sendVerificationEmail(user.email, user.name, verificationToken);
-    if (!delivered) return res.status(503).json({ error: "Verification email is not configured" });
+    const messageId = await sendVerificationEmail(user.email, user.name, verificationToken);
+    if (!messageId) return res.status(503).json({ error: "Verification email is not configured" });
   } catch (error) {
     console.error("Verification email resend failed:", error);
     return res.status(502).json({ error: "Verification email could not be sent" });
@@ -161,8 +161,8 @@ authRouter.post("/forgot-password", async (req, res) => {
   if (user?.email) {
     const token = await issueAuthToken(user.id, "PASSWORD_RESET", 60 * 60 * 1000);
     try {
-      const delivered = await sendPasswordResetEmail(user.email, user.name, token);
-      if (!delivered) {
+      const messageId = await sendPasswordResetEmail(user.email, user.name, token);
+      if (!messageId) {
         return res.status(503).json({ error: "Password reset email is not configured" });
       }
     } catch (error) {
@@ -206,7 +206,8 @@ authRouter.post("/welcome-email", requireAuth, async (req: AuthedRequest, res) =
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user?.email) return res.status(400).json({ error: "Account has no email address" });
-    await sendWelcomeEmail(user.email, user.name);
+    const messageId = await sendWelcomeEmail(user.email, user.name);
+    console.log(`Welcome email sent to ${user.email}, message ID: ${messageId}`);
     res.json({ sent: true });
   } catch (error) {
     console.error("Welcome email failed:", error);
