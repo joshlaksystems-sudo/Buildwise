@@ -1,0 +1,58 @@
+name: IBim CI
+
+on:
+  pull_request:
+    paths:
+      - "ibim-app/**"
+      - ".github/workflows/ibim-ci.yml"
+  push:
+    branches-ignore: [main]
+    paths:
+      - "ibim-app/**"
+      - ".github/workflows/ibim-ci.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: IBim backend validation
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ibim-app/backend
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ibim
+      DIRECT_URL: postgresql://ci:ci@localhost:5432/ibim
+      JWT_SECRET: ci-only-secret
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ibim-app/package-lock.json
+      - run: npm install --workspaces=false
+      - run: npx prisma validate
+      - run: npx prisma generate
+      - run: npm run typecheck
+      - run: npm run build
+
+  frontend:
+    name: IBim frontend validation
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ibim-app/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ibim-app/package-lock.json
+      - run: npm install --workspaces=false
+      - run: npm run typecheck
+      - run: npm run build
