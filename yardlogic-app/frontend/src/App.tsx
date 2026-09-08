@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { Login } from "./pages/Login";
+import { IbimWorkspace } from "./pages/IbimWorkspace";
 
 const Dashboard = lazy(() => import("./pages/Dashboard").then((module) => ({ default: module.Dashboard })));
 const Invoices = lazy(() => import("./pages/Invoices").then((module) => ({ default: module.Invoices })));
@@ -32,11 +33,16 @@ function businessId() {
   return localStorage.getItem("businessId") || "";
 }
 
+function preferredApplication() {
+  return localStorage.getItem("applicationPreference") || "YARDLOGIC";
+}
+
 export default function App() {
   return (
     <Suspense fallback={<div style={{ padding: 32 }}>Loading YardLogic...</div>}>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/ibim" element={isAuthed() && preferredApplication() === "IBIM" ? <IbimWorkspace /> : <Navigate to={isAuthed() ? "/" : "/login"} replace />} />
         <Route path="/" element={isAuthed() ? <Layout /> : <Navigate to="/login" />}>
           <Route index element={<Dashboard />} />
           <Route path="invoices" element={<Invoices />} />

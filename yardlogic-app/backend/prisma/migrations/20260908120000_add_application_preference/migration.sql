@@ -1,0 +1,2 @@
+ALTER TABLE "User"
+ADD COLUMN "applicationPreference" TEXT NOT NULL DEFAULT 'YARDLOGIC';

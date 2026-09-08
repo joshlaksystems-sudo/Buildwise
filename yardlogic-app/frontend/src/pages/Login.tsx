@@ -6,6 +6,7 @@ import { initSync } from "../lib/syncManager";
 function storeSession(data: any) {
   localStorage.setItem("token", data.token);
   localStorage.setItem("businesses", JSON.stringify(data.businesses));
+  localStorage.setItem("applicationPreference", data.applicationPreference || data.user?.applicationPreference || "YARDLOGIC");
   const first = data.businesses?.[0]?.business?.id ?? data.businesses?.[0]?.businessId;
   if (first) localStorage.setItem("businessId", first);
 }
@@ -18,6 +19,7 @@ export function Login() {
   const [requiresTotp, setRequiresTotp] = useState(false);
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
+  const [applicationPreference, setApplicationPreference] = useState<"YARDLOGIC" | "IBIM">("YARDLOGIC");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -49,14 +51,15 @@ export function Login() {
       const path = mode === "login" ? "/auth/login" : "/auth/signup";
       const body = mode === "login"
         ? { identifier: normalizedIdentifier, password, ...(totpCode ? { totpCode } : {}) }
-        : { identifier: normalizedIdentifier, password, name: name.trim(), businessName: businessName.trim() };
+        : { identifier: normalizedIdentifier, password, name: name.trim(), businessName: businessName.trim(), applicationPreference };
       const data = await api<any>(path, { method: "POST", body: JSON.stringify(body) });
       storeSession(data);
       initSync();
       if (mode === "register") {
         void api("/auth/welcome-email", { method: "POST" }).catch(() => {});
       }
-      navigate("/");
+      const selectedApplication = mode === "register" ? applicationPreference : data.applicationPreference;
+      navigate(selectedApplication === "IBIM" ? "/ibim" : "/");
     } catch (err: any) {
       if (mode === "login" && err.message === "2FA code required") {
         setRequiresTotp(true);
@@ -78,6 +81,7 @@ export function Login() {
         <form onSubmit={submit}>
           {mode === "register" && <Field label="Your name" value={name} onChange={setName} />}
           {mode === "register" && <Field label="Business name" value={businessName} onChange={setBusinessName} />}
+          {mode === "register" && <PreferenceChoice value={applicationPreference} onChange={setApplicationPreference} />}
           <Field label="Email or mobile number" value={identifier} onChange={setIdentifier} />
           <Field label="Password" type="password" value={password} onChange={setPassword} />
           {mode === "login" && requiresTotp && <Field label="Authenticator code" value={totpCode} onChange={setTotpCode} />}
@@ -106,5 +110,21 @@ function Field({ label, type = "text", value, onChange }: { label: string; type?
       {label}
       <input type={type} value={value} onChange={(e) => onChange(e.target.value)} required minLength={type === "password" ? 8 : undefined} style={{ display: "block", width: "100%", marginTop: 4 }} />
     </label>
+  );
+}
+
+function PreferenceChoice({ value, onChange }: { value: "YARDLOGIC" | "IBIM"; onChange: (value: "YARDLOGIC" | "IBIM") => void }) {
+  return (
+    <fieldset style={{ border: 0, padding: 0, margin: "0 0 14px" }}>
+      <legend style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 6 }}>Choose your workspace</legend>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        {(["YARDLOGIC", "IBIM"] as const).map((option) => (
+          <button key={option} type="button" onClick={() => onChange(option)} style={{ padding: "12px 8px", textAlign: "left", border: `1px solid ${value === option ? "var(--ink)" : "var(--rule)"}`, background: value === option ? "var(--paper)" : "var(--paper-raised)" }}>
+            <strong style={{ display: "block", fontSize: 12 }}>{option === "IBIM" ? "IBim Consulting" : "YardLogic ERP"}</strong>
+            <span style={{ display: "block", marginTop: 4, color: "var(--ink-soft)", fontSize: 10 }}>{option === "IBIM" ? "Tekla, projects & training" : "Billing, stock & finance"}</span>
+          </button>
+        ))}
+      </div>
+    </fieldset>
   );
 }

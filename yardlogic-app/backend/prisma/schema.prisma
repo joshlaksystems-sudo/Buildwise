@@ -87,6 +87,7 @@ model User {
   email        String?  @unique
   phone        String?  @unique
   passwordHash String? // optional — OTP-only accounts have no password
+  applicationPreference String @default("YARDLOGIC") // YARDLOGIC | IBIM
   // Step 6: two-factor auth. Secret is only set once the user
   // enables 2FA; totpEnabled gates whether login requires a code.
   totpSecret   String?

@@ -12,6 +12,7 @@ import {
   getInvoiceInsightsWithVertexAI,
   extractPurchaseBillWithVertexAI,
   answerBusinessQuestionWithVertexAI,
+  generateTeklaAssistantWithVertexAI,
   scanDocumentForMalware,
   validateDocumentUpload,
 } from "../services/googleCloud";
@@ -46,6 +47,25 @@ aiRouter.get("/wallet", async (req: AuthedRequest, res) => {
 });
 
 aiRouter.use(requireAISubscription);
+
+const teklaAssistantSchema = z.object({
+  prompt: z.string().trim().min(3).max(8000),
+  teklaVersion: z.string().trim().min(1).max(40).default("Tekla 2024"),
+});
+
+aiRouter.post("/tekla-assistant", async (req: AuthedRequest, res) => {
+  const parsed = teklaAssistantSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  try {
+    const answer = await generateTeklaAssistantWithVertexAI(parsed.data.prompt, parsed.data.teklaVersion);
+    res.json({ answer, provider: "vertex-ai", model: googleCloudStatus().vertexModel, location: googleCloudStatus().location });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const status = /disabled|not initialized|timed out|not configured/i.test(message) ? 503 : 502;
+    console.error("Tekla assistant failed:", { message, userId: req.userId, businessId: req.businessId });
+    res.status(status).json({ error: status === 503 ? "Vertex AI is unavailable or disabled" : "Vertex AI could not complete the request" });
+  }
+});
 
 // OCR → Categorize expense using Vertex AI (if enabled) or Claude (fallback)
 const ocrSchema = z.object({
