@@ -58,7 +58,7 @@ export default function App() {
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         {isIbim && <Route path="/ibim" element={isAuthed() && Boolean(businessId()) && (!isMultiApplication || selectedApplication() === "IBIM") ? <IbimWorkspace /> : <Navigate to={isMultiApplication ? "/select-application" : "/login"} replace />} />}
-        {isYardLogic && <Route path="/" element={isMultiApplication && !selectedApplication() ? <ApplicationHome /> : isAuthed() ? <Layout /> : <Navigate to="/login" />}>
+        {isYardLogic && <Route path="/" element={isMultiApplication && !selectedApplication() ? <ApplicationHome /> : isAuthed() && Boolean(businessId()) ? <Layout /> : <Navigate to={isMultiApplication ? "/select-application" : "/login"} />}>
           <Route index element={<Dashboard />} />
           <Route path="invoices" element={<Invoices />} />
           <Route path="items" element={<Items />} />
@@ -90,6 +90,8 @@ function ApplicationHome() {
   const [message, setMessage] = useState("");
   useEffect(() => { if (localStorage.getItem("token")) void api<{ businesses: Array<{ id: string; name: string; applicationId: string; role: string }> }>("/auth/application/businesses").then((result) => setUnassigned(result.businesses.filter((business) => business.applicationId === "UNASSIGNED"))).catch(() => {}); }, []);
   function choose(application: "IBIM" | "YARDLOGIC") {
+    localStorage.removeItem("businessId");
+    localStorage.removeItem("businesses");
     localStorage.setItem("applicationPreference", application);
     window.location.assign(application === "IBIM" ? "/login?application=IBIM" : "/login?application=YARDLOGIC");
   }

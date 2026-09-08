@@ -7,7 +7,12 @@ function storeSession(data: any) {
   localStorage.setItem("token", data.token);
   localStorage.setItem("businesses", JSON.stringify(data.businesses));
   const first = data.businesses?.[0]?.business?.id ?? data.businesses?.[0]?.businessId;
-  if (first) localStorage.setItem("businessId", first);
+  if (!first) {
+    localStorage.removeItem("token");
+    localStorage.removeItem("businesses");
+    throw new Error(`No ${localStorage.getItem("applicationPreference") || "selected"} workspace is linked to this account. Create or classify a workspace first.`);
+  }
+  localStorage.setItem("businessId", first);
 }
 export function Login() {
   const [application] = useState<"IBIM" | "YARDLOGIC">(() => {
@@ -53,6 +58,8 @@ export function Login() {
     }
     setLoading(true);
     try {
+      localStorage.removeItem("businessId");
+      localStorage.removeItem("businesses");
       const path = mode === "login" ? "/auth/login" : "/auth/signup";
       const body = mode === "login"
         ? { identifier: normalizedIdentifier, password, applicationId: application, ...(totpCode ? { totpCode } : {}) }

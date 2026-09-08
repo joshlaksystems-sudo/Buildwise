@@ -4,22 +4,24 @@ import { prisma } from "../lib/prisma";
 
 const email = process.env.IBIM_DEMO_EMAIL;
 const password = process.env.IBIM_DEMO_PASSWORD;
-if (!email || !password) throw new Error("Set IBIM_DEMO_EMAIL and IBIM_DEMO_PASSWORD before seeding demo data");
-const demoEmail = email;
-const demoPassword = password;
+const existingUserEmail = process.env.IBIM_DEMO_EXISTING_USER_EMAIL;
+if (!existingUserEmail && (!email || !password)) throw new Error("Set IBIM_DEMO_EXISTING_USER_EMAIL, or set IBIM_DEMO_EMAIL and IBIM_DEMO_PASSWORD before seeding demo data");
+const demoEmail = existingUserEmail || email!;
 
 async function main() {
-const passwordHash = await bcrypt.hash(demoPassword, 10);
 const business = await prisma.business.upsert({
   where: { id: process.env.IBIM_DEMO_BUSINESS_ID || "00000000-0000-0000-0000-000000000001" },
   update: { applicationId: "IBIM", name: "iBIM Demo Workspace" },
   create: { id: process.env.IBIM_DEMO_BUSINESS_ID || "00000000-0000-0000-0000-000000000001", name: "iBIM Demo Workspace", applicationId: "IBIM" },
 });
-const user = await prisma.user.upsert({
-  where: { email },
-  update: { name: "iBIM Demo Owner", passwordHash },
-  create: { name: "iBIM Demo Owner", email: demoEmail, passwordHash, emailVerifiedAt: new Date() },
-});
+const user = existingUserEmail
+  ? await prisma.user.findUnique({ where: { email: existingUserEmail } })
+  : await prisma.user.upsert({
+    where: { email: demoEmail },
+    update: { name: "iBIM Demo Owner", passwordHash: await bcrypt.hash(password!, 10) },
+    create: { name: "iBIM Demo Owner", email: demoEmail, passwordHash: await bcrypt.hash(password!, 10), emailVerifiedAt: new Date() },
+  });
+if (!user) throw new Error(`No user found for IBIM_DEMO_EXISTING_USER_EMAIL=${existingUserEmail}`);
 await prisma.userBusiness.upsert({
   where: { userId_businessId: { userId: user.id, businessId: business.id } },
   update: { role: "OWNER" },
