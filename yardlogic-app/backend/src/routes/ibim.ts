@@ -60,6 +60,61 @@ const transactionSchema = z.object({
 
 const csvUpload = multer({ limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
 
+type ImportCandidate = {
+  row: number;
+  data: z.infer<typeof memberSchema>;
+};
+
+function normalized(value: string | undefined) {
+  return value?.trim().toLowerCase().replace(/\s+/g, " ") || "";
+}
+
+function duplicateWhere(data: z.infer<typeof memberSchema>, businessId: string): Prisma.IbimMemberWhereInput | null {
+  const checks: Prisma.IbimMemberWhereInput[] = [];
+  if (data.email) checks.push({ email: { equals: data.email, mode: "insensitive" } });
+  if (data.phone) checks.push({ phone: { equals: data.phone } });
+  if (data.externalRef) checks.push({ externalRef: { equals: data.externalRef, mode: "insensitive" } });
+  if (data.legalName) checks.push({ legalName: { equals: data.legalName, mode: "insensitive" } });
+  return checks.length ? { businessId, OR: checks } : null;
+}
+
+async function previewImportRows(rows: unknown[], businessId: string, rowOffset = 1) {
+  const preview: Array<{ row: number; status: "READY" | "DUPLICATE" | "INVALID"; data?: z.infer<typeof memberSchema>; matches?: Array<{ id: string; legalName: string; email: string | null; phone: string | null; externalRef: string | null; matchedOn: string[] }>; issues?: unknown }> = [];
+  const acceptedKeys = new Set<string>();
+  const candidates: ImportCandidate[] = [];
+
+  for (const [index, row] of rows.entries()) {
+    const parsed = memberSchema.safeParse(row);
+    const rowNumber = index + rowOffset;
+    if (!parsed.success) {
+      preview.push({ row: rowNumber, status: "INVALID", issues: parsed.error.flatten().fieldErrors });
+      continue;
+    }
+    candidates.push({ row: rowNumber, data: parsed.data });
+  }
+
+  for (const candidate of candidates) {
+    const data = candidate.data;
+    const keys = [normalized(data.email), normalized(data.phone).replace(/\D/g, ""), normalized(data.externalRef), normalized(data.legalName)].filter(Boolean);
+    const sameFileDuplicate = keys.some((key) => acceptedKeys.has(key));
+    const where = duplicateWhere(data, businessId);
+    const existing = where ? await prisma.ibimMember.findMany({ where, take: 10, select: { id: true, legalName: true, email: true, phone: true, externalRef: true } }) : [];
+    const matches = existing.map((member) => ({
+      ...member,
+      matchedOn: [
+        member.email && data.email && normalized(member.email) === normalized(data.email) ? "email" : "",
+        member.phone && data.phone && member.phone.replace(/\D/g, "") === data.phone.replace(/\D/g, "") ? "phone" : "",
+        member.externalRef && data.externalRef && normalized(member.externalRef) === normalized(data.externalRef) ? "externalRef" : "",
+        normalized(member.legalName) === normalized(data.legalName) ? "legalName" : "",
+      ].filter(Boolean),
+    }));
+    const duplicate = sameFileDuplicate || matches.length > 0;
+    preview.push({ row: candidate.row, status: duplicate ? "DUPLICATE" : "READY", data, ...(matches.length ? { matches } : {}), ...(sameFileDuplicate ? { issues: { duplicateInUpload: true } } : {}) });
+    keys.forEach((key) => acceptedKeys.add(key));
+  }
+  return preview.sort((a, b) => a.row - b.row);
+}
+
 function jsonInput(value: unknown) {
   return value as Prisma.InputJsonValue;
 }
@@ -89,9 +144,68 @@ ibimRouter.get("/renewals", async (req: AuthedRequest, res) => {
   res.json({ renewals });
 });
 
+ibimRouter.get("/renewals/calendar", async (req: AuthedRequest, res) => {
+  const now = new Date();
+  const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const in60 = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+  const in90 = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+  const policies = await prisma.ibimPolicy.findMany({
+    where: { businessId: req.businessId, status: "ACTIVE", renewalDate: { lte: in90 } },
+    include: { member: true },
+    orderBy: { renewalDate: "asc" },
+  });
+  const overdue = policies.filter((policy) => policy.renewalDate && policy.renewalDate < now);
+  const next30 = policies.filter((policy) => policy.renewalDate && policy.renewalDate >= now && policy.renewalDate <= in30);
+  const next60 = policies.filter((policy) => policy.renewalDate && policy.renewalDate > in30 && policy.renewalDate <= in60);
+  const next90 = policies.filter((policy) => policy.renewalDate && policy.renewalDate > in60 && policy.renewalDate <= in90);
+  res.json({ overdue, next30, next60, next90, total: policies.length });
+});
+
+ibimRouter.post("/renewals/reminders", requireRole("OWNER", "ADMIN", "STAFF"), async (req: AuthedRequest, res) => {
+  const now = new Date();
+  const in90 = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+  const policies = await prisma.ibimPolicy.findMany({ where: { businessId: req.businessId, status: "ACTIVE", renewalDate: { gte: now, lte: in90 } }, select: { id: true, memberId: true, renewalDate: true, policyNumber: true } });
+  let created = 0;
+  for (const policy of policies) {
+    const existing = await prisma.ibimWorkflowTask.findFirst({ where: { businessId: req.businessId, policyId: policy.id, type: "RENEWAL", status: { notIn: ["DONE", "CANCELLED"] } }, select: { id: true } });
+    if (existing) continue;
+    await prisma.ibimWorkflowTask.create({ data: { businessId: req.businessId!, memberId: policy.memberId, policyId: policy.id, type: "RENEWAL", status: "OPEN", dueAt: policy.renewalDate, note: `Renewal reminder for policy ${policy.policyNumber}` } });
+    created += 1;
+  }
+  res.json({ created, checked: policies.length });
+});
+
 ibimRouter.get("/audit", async (req: AuthedRequest, res) => {
   const logs = await prisma.auditLog.findMany({ where: { businessId: req.businessId, entityType: { in: ["IbimMember", "IbimProposal", "IbimPolicy", "IbimTransaction", "IbimWorkflowTask"] } }, orderBy: { createdAt: "desc" }, take: 100 });
   res.json({ logs });
+});
+
+ibimRouter.get("/activity", async (req: AuthedRequest, res) => {
+  const memberId = typeof req.query.memberId === "string" ? req.query.memberId : undefined;
+  const [logs, events, transactions] = await Promise.all([
+    prisma.auditLog.findMany({ where: { businessId: req.businessId, ...(memberId ? { entityId: memberId } : {}) }, orderBy: { createdAt: "desc" }, take: 100 }),
+    prisma.ibimWorkflowEvent.findMany({ where: { businessId: req.businessId, ...(memberId ? { memberId } : {}) }, orderBy: { createdAt: "desc" }, take: 100 }),
+    prisma.ibimTransaction.findMany({ where: { businessId: req.businessId, ...(memberId ? { policy: { memberId } } : {}) }, include: { policy: true }, orderBy: { createdAt: "desc" }, take: 100 }),
+  ]);
+  const activity = [
+    ...logs.map((item) => ({ id: item.id, type: "AUDIT", at: item.createdAt, action: item.action, entityType: item.entityType, detail: item.detail })),
+    ...events.map((item) => ({ id: item.id, type: "WORKFLOW", at: item.createdAt, action: item.eventType, entityType: "Workflow", detail: item.detail })),
+    ...transactions.map((item) => ({ id: item.id, type: "TRANSACTION", at: item.createdAt, action: item.type, entityType: "IbimTransaction", detail: { amount: item.amount.toString(), policyNumber: item.policy.policyNumber } })),
+  ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()).slice(0, 200);
+  res.json({ activity });
+});
+
+ibimRouter.get("/email-deliveries", requireRole("OWNER", "ADMIN", "STAFF"), async (req: AuthedRequest, res) => {
+  const deliveries = await prisma.ibimEmailDelivery.findMany({ where: { businessId: req.businessId }, orderBy: { sentAt: "desc" }, take: 200 });
+  res.json({ deliveries });
+});
+
+ibimRouter.patch("/email-deliveries/:id", requireRole("OWNER", "ADMIN"), async (req: AuthedRequest, res) => {
+  const parsed = z.object({ status: z.enum(["SENT", "DELIVERED", "FAILED", "BOUNCED"]), providerRef: z.string().trim().max(180).optional(), error: z.string().trim().max(500).optional() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const delivery = await prisma.ibimEmailDelivery.updateMany({ where: { id: req.params.id, businessId: req.businessId }, data: { ...parsed.data, deliveredAt: parsed.data.status === "DELIVERED" ? new Date() : undefined } });
+  if (delivery.count !== 1) return res.status(404).json({ error: "Email delivery not found" });
+  res.json({ updated: true });
 });
 
 ibimRouter.get("/members", async (req: AuthedRequest, res) => {
@@ -107,19 +221,25 @@ ibimRouter.post("/members", requireRole("OWNER", "ADMIN", "STAFF"), async (req: 
   res.status(201).json({ member });
 });
 
+ibimRouter.post("/members/import/preview", requireRole("OWNER", "ADMIN"), async (req: AuthedRequest, res) => {
+  const rows = z.array(z.unknown()).max(10_000).safeParse(req.body?.rows);
+  if (!rows.success) return res.status(400).json({ error: "rows must be an array with no more than 10,000 records" });
+  const preview = await previewImportRows(rows.data, req.businessId!, 1);
+  res.json({ preview, summary: { ready: preview.filter((row) => row.status === "READY").length, duplicates: preview.filter((row) => row.status === "DUPLICATE").length, invalid: preview.filter((row) => row.status === "INVALID").length } });
+});
+
 ibimRouter.post("/members/import", requireRole("OWNER", "ADMIN"), async (req: AuthedRequest, res) => {
   const rows = z.array(z.unknown()).max(10_000).safeParse(req.body?.rows);
   if (!rows.success) return res.status(400).json({ error: "rows must be an array with no more than 10,000 records" });
+  const preview = await previewImportRows(rows.data, req.businessId!, 1);
   const accepted: string[] = [];
   const rejected: Array<{ row: number; issues: unknown }> = [];
   const flagged: Array<{ row: number; reason: string }> = [];
-  for (const [index, row] of rows.data.entries()) {
-    const parsed = memberSchema.safeParse(row);
-    if (!parsed.success) { rejected.push({ row: index + 1, issues: parsed.error.flatten().fieldErrors }); continue; }
-    if (!parsed.data.email && !parsed.data.phone) flagged.push({ row: index + 1, reason: "No email or phone supplied" });
-    const duplicate = await prisma.ibimMember.findFirst({ where: { businessId: req.businessId, OR: [{ email: parsed.data.email || undefined }, { phone: parsed.data.phone || undefined }, { externalRef: parsed.data.externalRef || undefined }] } });
-    if (duplicate) { flagged.push({ row: index + 1, reason: `Possible duplicate of ${duplicate.legalName}` }); continue; }
-    const member = await prisma.ibimMember.create({ data: { ...parsed.data, status: "ACTIVE", source: "IMPORT", businessId: req.businessId! } });
+  for (const item of preview) {
+    if (item.status === "INVALID") { rejected.push({ row: item.row, issues: item.issues }); continue; }
+    if (item.status === "DUPLICATE") { flagged.push({ row: item.row, reason: `Possible duplicate of ${item.matches?.[0]?.legalName || "another upload row"}` }); continue; }
+    if (!item.data?.email && !item.data?.phone) flagged.push({ row: item.row, reason: "No email or phone supplied" });
+    const member = await prisma.ibimMember.create({ data: { ...item.data!, status: "ACTIVE", source: "IMPORT", businessId: req.businessId! } });
     accepted.push(member.id);
   }
   res.status(201).json({ accepted: accepted.length, rejected, flagged, total: rows.data.length });
@@ -128,16 +248,19 @@ ibimRouter.post("/members/import", requireRole("OWNER", "ADMIN"), async (req: Au
 ibimRouter.post("/members/import.csv", requireRole("OWNER", "ADMIN"), csvUpload.single("file"), async (req: AuthedRequest, res) => {
   if (!req.file) return res.status(400).json({ error: "Upload a CSV file in the file field" });
   const rows = parseCsvRows(req.file.buffer.toString("utf8"));
+  const normalizedRows = rows.map((row) => {
+    const parsed = normalizeImportedMember(row);
+    return parsed.success ? parsed.data : { ...row, legalName: row.legalName || row.legal_name || row.name || "" };
+  });
+  const preview = await previewImportRows(normalizedRows, req.businessId!, 2);
   const accepted: string[] = [];
   const rejected: Array<{ row: number; issues: unknown }> = [];
   const flagged: Array<{ row: number; reason: string }> = [];
-  for (const [index, row] of rows.entries()) {
-    const parsed = normalizeImportedMember(row);
-    if (!parsed.success) { rejected.push({ row: index + 2, issues: parsed.error.flatten().fieldErrors }); continue; }
-    if (!parsed.data.email && !parsed.data.phone) flagged.push({ row: index + 2, reason: "No email or phone supplied" });
-    const duplicate = await prisma.ibimMember.findFirst({ where: { businessId: req.businessId, OR: [{ email: parsed.data.email || undefined }, { phone: parsed.data.phone || undefined }, { externalRef: parsed.data.externalRef || undefined }] } });
-    if (duplicate) { flagged.push({ row: index + 2, reason: `Possible duplicate of ${duplicate.legalName}` }); continue; }
-    const member = await prisma.ibimMember.create({ data: { ...parsed.data, status: "ACTIVE", source: "IMPORT", businessId: req.businessId! } });
+  for (const item of preview) {
+    if (item.status === "INVALID") { rejected.push({ row: item.row, issues: item.issues }); continue; }
+    if (item.status === "DUPLICATE") { flagged.push({ row: item.row, reason: `Possible duplicate of ${item.matches?.[0]?.legalName || "another upload row"}` }); continue; }
+    if (!item.data?.email && !item.data?.phone) flagged.push({ row: item.row, reason: "No email or phone supplied" });
+    const member = await prisma.ibimMember.create({ data: { ...item.data!, status: "ACTIVE", source: "IMPORT", businessId: req.businessId! } });
     accepted.push(member.id);
   }
   res.status(201).json({ accepted: accepted.length, rejected, flagged, total: rows.length });
@@ -222,6 +345,24 @@ ibimRouter.get("/reports/management", async (req: AuthedRequest, res) => {
   res.json({ policies, transactions, proposals });
 });
 
+ibimRouter.get("/reports/filtered", async (req: AuthedRequest, res) => {
+  const where: Prisma.IbimPolicyWhereInput = { businessId: req.businessId };
+  if (typeof req.query.insurer === "string" && req.query.insurer.trim()) where.insurerName = { equals: req.query.insurer.trim(), mode: "insensitive" };
+  if (typeof req.query.status === "string" && req.query.status.trim()) where.status = req.query.status.trim();
+  if (typeof req.query.from === "string" || typeof req.query.to === "string") {
+    const renewalDate: Prisma.DateTimeNullableFilter = {};
+    const from = typeof req.query.from === "string" ? new Date(req.query.from) : undefined;
+    const to = typeof req.query.to === "string" ? new Date(req.query.to) : undefined;
+    if (from && Number.isNaN(from.getTime()) || to && Number.isNaN(to.getTime())) return res.status(400).json({ error: "Invalid report date filter" });
+    if (from) renewalDate.gte = from;
+    if (to) renewalDate.lte = to;
+    where.renewalDate = renewalDate;
+  }
+  const policies = await prisma.ibimPolicy.findMany({ where, include: { member: true, transactions: true }, orderBy: { renewalDate: "asc" }, take: 1_000 });
+  const transactions = policies.flatMap((policy) => policy.transactions);
+  res.json({ policies, transactions, payments: transactions.filter((row) => row.type === "PAYMENT"), rebates: transactions.filter((row) => row.type === "REBATE"), summary: { policies: policies.length, payments: transactions.filter((row) => row.type === "PAYMENT").length, rebates: transactions.filter((row) => row.type === "REBATE").length } });
+});
+
 ibimRouter.get("/tasks", async (req: AuthedRequest, res) => {
   const tasks = await prisma.ibimWorkflowTask.findMany({ where: { businessId: req.businessId, status: { not: "DONE" } }, include: { member: true, proposal: true, policy: true }, orderBy: { dueAt: "asc" }, take: 100 });
   res.json({ tasks });
@@ -248,9 +389,54 @@ ibimRouter.post("/tasks/:id/chase", requireRole("OWNER", "ADMIN", "STAFF"), asyn
   if (!task.member?.email) return res.status(400).json({ error: "Member has no email address" });
   const subject = typeof req.body?.subject === "string" && req.body.subject.trim() ? req.body.subject.trim() : "Action required for your insurance proposal";
   const message = typeof req.body?.message === "string" && req.body.message.trim() ? req.body.message.trim() : "Please review and complete the outstanding insurance information requested by your broker.";
-  const delivered = await sendGmailEmail(task.member.email, subject, message);
-  if (!delivered) return res.status(503).json({ error: "Email provider is not configured" });
-  res.json({ sent: true });
+  try {
+    const delivered = await sendGmailEmail(task.member.email, subject, message);
+    if (!delivered) return res.status(503).json({ error: "Email provider is not configured" });
+    const delivery = await prisma.ibimEmailDelivery.create({ data: { businessId: req.businessId!, memberId: task.memberId, taskId: task.id, recipient: task.member.email, subject, kind: "CHASER", status: "SENT" } });
+    res.json({ sent: true, deliveryId: delivery.id });
+  } catch (error) {
+    await prisma.ibimEmailDelivery.create({ data: { businessId: req.businessId!, memberId: task.memberId, taskId: task.id, recipient: task.member.email, subject, kind: "CHASER", status: "FAILED", error: error instanceof Error ? error.message : "Email send failed" } });
+    throw error;
+  }
+});
+
+ibimRouter.post("/reconciliation", requireRole("OWNER", "ADMIN", "ACCOUNTANT"), async (req: AuthedRequest, res) => {
+  const parsed = z.object({ sourceSystem: z.string().trim().min(1).max(80), rows: z.array(z.object({ policyNumber: z.string().trim().optional(), externalRef: z.string().trim().optional(), status: z.string().trim().optional(), premium: z.number().optional(), renewalDate: z.coerce.date().optional() })).max(10_000) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const results = [];
+  for (const row of parsed.data.rows) {
+    const policy = await prisma.ibimPolicy.findFirst({ where: { businessId: req.businessId, OR: [{ policyNumber: row.policyNumber || undefined }, { externalPolicyRef: row.externalRef || undefined }] } });
+    const differences: Record<string, unknown> = {};
+    if (!policy) {
+      results.push(await prisma.ibimReconciliation.create({ data: { businessId: req.businessId!, sourceSystem: parsed.data.sourceSystem, externalRef: row.externalRef, policyNumber: row.policyNumber, status: "MISSING", differences: { reason: "No matching platform policy" }, sourceData: jsonInput(row) } }));
+      continue;
+    }
+    if (row.status && row.status !== policy.status) differences.status = { platform: policy.status, source: row.status };
+    if (row.premium !== undefined && Number(policy.premium) !== row.premium) differences.premium = { platform: Number(policy.premium), source: row.premium };
+    if (row.renewalDate && policy.renewalDate?.toISOString().slice(0, 10) !== row.renewalDate.toISOString().slice(0, 10)) differences.renewalDate = { platform: policy.renewalDate, source: row.renewalDate };
+    results.push(await prisma.ibimReconciliation.create({ data: { businessId: req.businessId!, sourceSystem: parsed.data.sourceSystem, externalRef: row.externalRef, policyNumber: row.policyNumber, policyId: policy.id, status: Object.keys(differences).length ? "CHANGED" : "MATCHED", differences: jsonInput(differences), sourceData: jsonInput(row) } }));
+  }
+  res.status(201).json({ results, summary: { matched: results.filter((row) => row.status === "MATCHED").length, changed: results.filter((row) => row.status === "CHANGED").length, missing: results.filter((row) => row.status === "MISSING").length } });
+});
+
+ibimRouter.get("/reconciliation", requireRole("OWNER", "ADMIN", "ACCOUNTANT"), async (req: AuthedRequest, res) => {
+  const records = await prisma.ibimReconciliation.findMany({ where: { businessId: req.businessId, ...(typeof req.query.status === "string" ? { status: req.query.status } : {}) }, orderBy: { checkedAt: "desc" }, take: 500 });
+  res.json({ records });
+});
+
+ibimRouter.get("/privacy/export/:memberId", requireRole("OWNER", "ADMIN"), async (req: AuthedRequest, res) => {
+  const member = await prisma.ibimMember.findFirst({ where: { id: req.params.memberId, businessId: req.businessId }, include: { proposals: true, policies: { include: { transactions: true } }, workflowTasks: true, workflowEvents: true } });
+  if (!member) return res.status(404).json({ error: "Member not found" });
+  await writeAudit({ businessId: req.businessId!, userId: req.userId, action: "ibim.privacy.export", entityType: "IbimMember", entityId: member.id });
+  res.json({ exportedAt: new Date().toISOString(), member });
+});
+
+ibimRouter.post("/privacy/anonymize/:memberId", requireRole("OWNER", "ADMIN"), async (req: AuthedRequest, res) => {
+  const member = await prisma.ibimMember.findFirst({ where: { id: req.params.memberId, businessId: req.businessId }, select: { id: true } });
+  if (!member) return res.status(404).json({ error: "Member not found" });
+  await prisma.ibimMember.update({ where: { id: member.id }, data: { legalName: "Anonymised member", tradingName: null, contactName: null, email: null, phone: null, address: null, externalRef: null, status: "INACTIVE" } });
+  await writeAudit({ businessId: req.businessId!, userId: req.userId, action: "ibim.privacy.anonymize", entityType: "IbimMember", entityId: member.id });
+  res.json({ anonymized: true });
 });
 
 ibimRouter.get("/subscription", async (req: AuthedRequest, res) => {

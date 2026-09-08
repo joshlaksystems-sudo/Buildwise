@@ -14,12 +14,11 @@ Apps Script (Code.gs) --POST--> Vercel (/api/insert.ts) --insert--> BigQuery
 
 ## 1. Create the BigQuery tables
 
-Every table from the main app's schema (`backend/prisma/schema.prisma`)
-has a matching BigQuery table in `bigquery/schema.sql` — 16 tables,
-nothing skipped: businesses, users, user_business, customers,
-suppliers, items, stock_movements, invoices, invoice_items,
-estimates, estimate_items, delivery_challans,
-delivery_challan_items, expenses, payments, salesman_logs.
+Every analytics table from the main app's schema (`backend/prisma/schema.prisma`)
+has a matching BigQuery table in `bigquery/schema.sql`, including the iBIM
+insurance mutual foundation: members, proposals, policies, workflow tasks,
+transactions, versioned form definitions, migration batches/rows, and
+workflow events.
 
 ```bash
 # Replace YOUR_PROJECT in the file first, then:
@@ -54,7 +53,7 @@ vercel deploy --prod
 
 Your endpoint is now live at `https://<your-app>.vercel.app/api/insert`.
 It only accepts `POST` requests carrying the `X-Ingest-Secret` header
-matching `INGEST_SHARED_SECRET`, and only writes to the 16 tables
+matching `INGEST_SHARED_SECRET`, and only writes to the allowlisted tables
 listed in `lib/bigquery.ts` — anything else is rejected with a 400
 before it reaches BigQuery. Enum columns (`status`, `role`, `mode`,
 etc.) are validated against the same allowed values as the SQL

@@ -6,11 +6,15 @@ import { initSync } from "../lib/syncManager";
 function storeSession(data: any) {
   localStorage.setItem("token", data.token);
   localStorage.setItem("businesses", JSON.stringify(data.businesses));
-  localStorage.removeItem("applicationPreference");
   const first = data.businesses?.[0]?.business?.id ?? data.businesses?.[0]?.businessId;
   if (first) localStorage.setItem("businessId", first);
 }
 export function Login() {
+  const [application] = useState<"IBIM" | "YARDLOGIC">(() => {
+    const requested = new URLSearchParams(window.location.search).get("application");
+    if (requested === "IBIM" || requested === "YARDLOGIC") localStorage.setItem("applicationPreference", requested);
+    return (requested || localStorage.getItem("applicationPreference") || import.meta.env.VITE_APPLICATION_ID || "YARDLOGIC") as "IBIM" | "YARDLOGIC";
+  });
   const [mode, setMode] = useState<"login" | "register">("login");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -51,15 +55,15 @@ export function Login() {
     try {
       const path = mode === "login" ? "/auth/login" : "/auth/signup";
       const body = mode === "login"
-        ? { identifier: normalizedIdentifier, password, ...(totpCode ? { totpCode } : {}) }
-        : { identifier: normalizedIdentifier, password, name: name.trim(), businessName: businessName.trim() };
+        ? { identifier: normalizedIdentifier, password, applicationId: application, ...(totpCode ? { totpCode } : {}) }
+        : { identifier: normalizedIdentifier, password, name: name.trim(), businessName: businessName.trim(), applicationId: application };
       const data = await api<any>(path, { method: "POST", body: JSON.stringify(body) });
       storeSession(data);
       initSync();
       if (mode === "register") {
         void api("/auth/welcome-email", { method: "POST" }).catch(() => {});
       }
-      navigate(import.meta.env.VITE_APPLICATION_ID === "IBIM" ? "/ibim" : "/");
+      navigate(application === "IBIM" ? "/ibim" : "/");
     } catch (err: any) {
       if (mode === "login" && err.message === "2FA code required") {
         setRequiresTotp(true);
@@ -113,6 +117,7 @@ export function Login() {
         <div style={{ maxWidth: 380, margin: "0 auto" }}>
         <p style={{ margin: "0 0 8px", color: "var(--gold)", fontSize: 11, fontWeight: 700, letterSpacing: ".14em", textTransform: "uppercase" }}>{mode === "login" ? "Welcome back" : "Start here"}</p>
         <h2 style={{ fontSize: 27, marginBottom: 6 }}>{mode === "login" ? "Sign in to continue" : "Create your workspace"}</h2>
+        <p style={{ color: "var(--ink-soft)", fontSize: 12, marginBottom: 8 }}>Workspace: <strong>{application === "IBIM" ? "iBIM" : "YardLogic"}</strong> · <a href="/select-application">Change</a></p>
         <p style={{ color: "var(--ink-soft)", fontSize: 13, marginBottom: 24 }}>
           {mode === "login" ? "Log in with your email and password." : "Create your account with email and password."}
         </p>

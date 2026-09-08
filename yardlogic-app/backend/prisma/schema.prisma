@@ -19,6 +19,7 @@ datasource db {
 model Business {
   id         String  @id @default(uuid())
   name       String
+  applicationId String @default("UNASSIGNED") // IBIM | YARDLOGIC; required for shared ALL deployments
   gstin      String?
   address    String?
   logoUrl    String?
@@ -87,6 +88,13 @@ model Business {
   ibimProposals       IbimProposal[]
   ibimPolicies        IbimPolicy[]
   ibimTransactions    IbimTransaction[]
+  ibimFormDefinitions IbimFormDefinition[]
+  ibimMigrationBatches IbimMigrationBatch[]
+  ibimMigrationRows   IbimMigrationRow[]
+  ibimWorkflowEvents  IbimWorkflowEvent[]
+  ibimEmailDeliveries IbimEmailDelivery[]
+  ibimReconciliations IbimReconciliation[]
+  @@index([applicationId])
 }
 
 model User {
@@ -138,6 +146,8 @@ model IbimMember {
   proposals      IbimProposal[]
   policies       IbimPolicy[]
   workflowTasks  IbimWorkflowTask[]
+  migrationRows  IbimMigrationRow[]
+  workflowEvents IbimWorkflowEvent[]
   @@index([businessId, status])
   @@index([businessId, externalRef])
 }
@@ -146,6 +156,7 @@ model IbimProposal {
   id                String   @id @default(uuid())
   businessId        String
   memberId          String?
+  formDefinitionId  String?
   previousProposalId String?
   type              String   // NEW_BUSINESS | RENEWAL
   status            String   @default("DRAFT") // DRAFT | SUBMITTED | IN_REVIEW | QUOTED | BOUND | DECLINED
@@ -162,6 +173,8 @@ model IbimProposal {
   renewals          IbimProposal[] @relation("IbimRenewalChain")
   policies          IbimPolicy[]
   workflowTasks     IbimWorkflowTask[]
+  formDefinition    IbimFormDefinition? @relation(fields: [formDefinitionId], references: [id])
+  workflowEvents    IbimWorkflowEvent[]
   @@index([businessId, status, type])
   @@index([memberId, createdAt])
 }
@@ -186,6 +199,8 @@ model IbimPolicy {
   proposal          IbimProposal? @relation(fields: [proposalId], references: [id])
   transactions      IbimTransaction[]
   workflowTasks     IbimWorkflowTask[]
+  workflowEvents    IbimWorkflowEvent[]
+  reconciliations   IbimReconciliation[]
   @@unique([businessId, policyNumber])
   @@index([businessId, renewalDate, status])
 }
@@ -209,6 +224,7 @@ model IbimWorkflowTask {
   proposal     IbimProposal? @relation(fields: [proposalId], references: [id])
   policy       IbimPolicy? @relation(fields: [policyId], references: [id])
   assignedTo   User? @relation("IbimTaskAssignee", fields: [assignedToId], references: [id])
+  workflowEvents IbimWorkflowEvent[]
   @@index([businessId, status, dueAt])
 }
 
@@ -224,6 +240,115 @@ model IbimTransaction {
   business      Business @relation(fields: [businessId], references: [id])
   policy        IbimPolicy @relation(fields: [policyId], references: [id])
   @@index([businessId, transactionDate, type])
+}
+
+model IbimFormDefinition {
+  id          String   @id @default(uuid())
+  businessId  String
+  type        String   // NEW_BUSINESS | RENEWAL
+  version     String
+  title       String
+  schema      Json
+  active      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  business    Business @relation(fields: [businessId], references: [id])
+  proposals   IbimProposal[]
+  @@unique([businessId, type, version])
+  @@index([businessId, type, active])
+}
+
+model IbimMigrationBatch {
+  id          String   @id @default(uuid())
+  businessId  String
+  sourceName  String
+  status      String   @default("PROCESSING") // PROCESSING | COMPLETED | FAILED
+  totalRows   Int      @default(0)
+  accepted    Int      @default(0)
+  rejected    Int      @default(0)
+  flagged     Int      @default(0)
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+  error       String?
+  business    Business @relation(fields: [businessId], references: [id])
+  rows        IbimMigrationRow[]
+  @@index([businessId, startedAt])
+  @@index([businessId, status])
+}
+
+model IbimMigrationRow {
+  id          String   @id @default(uuid())
+  businessId  String
+  batchId     String
+  rowNumber   Int
+  outcome     String   // ACCEPTED | REJECTED | FLAGGED
+  sourceData  Json
+  memberId    String?
+  issues      Json?
+  createdAt   DateTime @default(now())
+  business    Business @relation(fields: [businessId], references: [id])
+  batch       IbimMigrationBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  member      IbimMember? @relation(fields: [memberId], references: [id])
+  @@unique([batchId, rowNumber])
+  @@index([businessId, outcome])
+}
+
+model IbimWorkflowEvent {
+  id          String   @id @default(uuid())
+  businessId  String
+  memberId    String?
+  proposalId  String?
+  policyId    String?
+  taskId      String?
+  eventType   String
+  fromStatus  String?
+  toStatus    String?
+  actorUserId String?
+  detail      Json?
+  createdAt   DateTime @default(now())
+  business    Business @relation(fields: [businessId], references: [id])
+  member      IbimMember? @relation(fields: [memberId], references: [id])
+  proposal    IbimProposal? @relation(fields: [proposalId], references: [id])
+  policy      IbimPolicy? @relation(fields: [policyId], references: [id])
+  task        IbimWorkflowTask? @relation(fields: [taskId], references: [id])
+  @@index([businessId, createdAt])
+  @@index([businessId, eventType, createdAt])
+}
+
+model IbimEmailDelivery {
+  id          String   @id @default(uuid())
+  businessId  String
+  memberId    String?
+  proposalId  String?
+  taskId      String?
+  recipient   String
+  subject     String
+  kind        String   // VERIFICATION | PROPOSAL | CHASER | RENEWAL
+  status      String   @default("SENT") // SENT | DELIVERED | FAILED | BOUNCED
+  providerRef String?
+  error       String?
+  sentAt      DateTime @default(now())
+  deliveredAt DateTime?
+  business    Business @relation(fields: [businessId], references: [id])
+  @@index([businessId, status, sentAt])
+  @@index([businessId, memberId, sentAt])
+}
+
+model IbimReconciliation {
+  id             String   @id @default(uuid())
+  businessId     String
+  sourceSystem   String
+  externalRef    String?
+  policyNumber   String?
+  policyId       String?
+  status         String   // MATCHED | MISSING | CHANGED | INVALID
+  differences    Json?
+  sourceData     Json
+  checkedAt      DateTime @default(now())
+  business       Business @relation(fields: [businessId], references: [id])
+  policy         IbimPolicy? @relation(fields: [policyId], references: [id])
+  @@index([businessId, sourceSystem, status])
+  @@index([businessId, checkedAt])
 }
 
 // Short-lived one-time codes for email/mobile login. A row is

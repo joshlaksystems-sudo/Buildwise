@@ -12,6 +12,7 @@
     "prisma:generate": "prisma generate",
     "prisma:studio": "prisma studio",
     "seed:templates": "tsx src/scripts/seedMaterialTemplates.ts",
+    "seed:ibim-demo": "tsx src/scripts/seedIbimDemo.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

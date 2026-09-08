@@ -37,18 +37,19 @@ import { reportUnhandledError } from "./services/monitoring";
 
 const app = express();
 const applicationId = process.env.APPLICATION_ID;
-if (process.env.NODE_ENV === "production" && applicationId !== "IBIM" && applicationId !== "YARDLOGIC") {
-	throw new Error("APPLICATION_ID must be configured in production");
+if (process.env.NODE_ENV === "production" && applicationId !== "IBIM" && applicationId !== "YARDLOGIC" && applicationId !== "ALL") {
+	throw new Error("APPLICATION_ID must be configured in production as IBIM, YARDLOGIC, or ALL");
 }
 const allowedOrigins = (process.env.CORS_ORIGINS || "*")
 	.split(",")
 	.map((origin) => origin.trim())
 	.filter(Boolean);
 const isVercelOrigin = (origin: string) => /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin);
+const allowVercelPreviews = process.env.ALLOW_VERCEL_PREVIEWS === "true";
 
 app.use(cors({
 	origin: (origin, callback) => {
-		if (!origin || allowedOrigins.includes("*") || allowedOrigins.includes(origin) || isVercelOrigin(origin)) {
+		if (!origin || allowedOrigins.includes("*") || allowedOrigins.includes(origin) || (allowVercelPreviews && isVercelOrigin(origin))) {
 			callback(null, true);
 			return;
 		}
@@ -56,6 +57,14 @@ app.use(cors({
 	},
 }));
 app.use(express.json({ limit: "5mb" }));
+app.use((_req, res, next) => {
+	res.setHeader("X-Content-Type-Options", "nosniff");
+	res.setHeader("X-Frame-Options", "DENY");
+	res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+	res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+	if (process.env.NODE_ENV === "production") res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+	next();
+});
 app.use((req, res, next) => {
 	const requestId = req.header("X-Request-Id") || crypto.randomUUID();
 	res.setHeader("X-Request-Id", requestId);
@@ -92,7 +101,7 @@ app.get("/health/google-cloud", async (_req, res) => {
 app.use(whatsappRouter);
 app.use("/auth", authRouter);
 app.use("/business", businessRouter);
-if (applicationId === "YARDLOGIC") {
+if (applicationId === "YARDLOGIC" || applicationId === "ALL") {
 app.use("/items", itemsRouter);
 app.use("/invoices", invoicesRouter);
 app.use("/purchase-bills", purchaseBillsRouter);
@@ -118,7 +127,7 @@ app.use("/growth", growthRouter);
 app.use("/approvals", approvalsRouter);
 app.use("/billing", billingRouter);
 }
-if (applicationId === "IBIM") {
+if (applicationId === "IBIM" || applicationId === "ALL") {
 	app.use("/ibim/public", ibimPublicRouter);
 app.use("/ibim", ibimRouter);
 }

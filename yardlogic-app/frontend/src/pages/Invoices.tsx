@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../lib/api";
+import { API_BASE_URL, api } from "../lib/api";
 import { cacheInvoicePdf, getCachedInvoicePdf } from "../lib/offlineDb";
 import "./Invoices.css";
 
@@ -126,10 +126,7 @@ export function Invoices() {
     if (navigator.onLine) {
       const token = localStorage.getItem("token");
       const businessId = localStorage.getItem("businessId");
-      const apiBaseUrl = import.meta.env.VITE_API_URL || (
-        import.meta.env.DEV ? "http://localhost:4000" : "https://yardlogic-backend.vercel.app"
-      );
-      const res = await fetch(`${apiBaseUrl}/invoices/${id}/pdf`, {
+      const res = await fetch(`${API_BASE_URL}/invoices/${id}/pdf`, {
         headers: { Authorization: `Bearer ${token}`, "X-Business-Id": businessId || "" },
       });
       if (res.ok) {

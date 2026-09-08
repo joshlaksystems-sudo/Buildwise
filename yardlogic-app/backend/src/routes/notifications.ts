@@ -368,6 +368,23 @@ export async function checkPaymentDueAndNotify(businessId: string) {
   }
 }
 
+export async function checkIbimRenewalsAndNotify(businessId: string) {
+  const now = new Date();
+  const in90 = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+  const policies = await prisma.ibimPolicy.findMany({ where: { businessId, status: "ACTIVE", renewalDate: { gte: now, lte: in90 } }, select: { id: true, memberId: true, policyNumber: true, renewalDate: true } });
+  let created = 0;
+  for (const policy of policies) {
+    const existingTask = await prisma.ibimWorkflowTask.findFirst({ where: { businessId, policyId: policy.id, type: "RENEWAL", status: { notIn: ["DONE", "CANCELLED"] } }, select: { id: true } });
+    if (!existingTask) {
+      await prisma.ibimWorkflowTask.create({ data: { businessId, memberId: policy.memberId, policyId: policy.id, type: "RENEWAL", status: "OPEN", dueAt: policy.renewalDate, note: `Renewal reminder for policy ${policy.policyNumber}` } });
+      created += 1;
+    }
+    const existingNotification = await prisma.notification.findFirst({ where: { businessId, type: "IBIM_RENEWAL", entityType: "IbimPolicy", entityId: policy.id, isRead: false }, select: { id: true } });
+    if (!existingNotification) await createNotification(businessId, "IBIM_RENEWAL", `Renewal due: ${policy.policyNumber}`, `Policy renewal is due by ${policy.renewalDate?.toLocaleDateString("en-GB") || "the recorded date"}.`, "IbimPolicy", policy.id);
+  }
+  return created;
+}
+
 // Runs all three checks for every business. Call periodically (see
 // startNotificationScheduler) so alerts actually get created — the
 // check* functions above are otherwise never invoked.
@@ -377,6 +394,7 @@ export async function runNotificationChecksForAllBusinesses() {
     await checkLowStockAndNotify(businessId);
     await checkOverdueInvoicesAndNotify(businessId);
     await checkPaymentDueAndNotify(businessId);
+    await checkIbimRenewalsAndNotify(businessId);
   }
   return businesses.length;
 }

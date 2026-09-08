@@ -80,8 +80,8 @@ jobs:
               exit 1
             fi
           done
-          if [ "$APPLICATION_ID" != "IBIM" ] && [ "$APPLICATION_ID" != "YARDLOGIC" ]; then
-            echo "Missing or invalid APPLICATION_ID. Configure repository secret or variable APPLICATION_ID as IBIM or YARDLOGIC."
+          if [ "$APPLICATION_ID" != "IBIM" ] && [ "$APPLICATION_ID" != "YARDLOGIC" ] && [ "$APPLICATION_ID" != "ALL" ]; then
+            echo "Missing or invalid APPLICATION_ID. Configure repository secret or variable APPLICATION_ID as IBIM, YARDLOGIC, or ALL."
             exit 1
           fi
           echo "Required deployment secrets are present."
@@ -157,6 +157,33 @@ jobs:
             --project_id="$GOOGLE_CLOUD_PROJECT_ID" \
             --location="$BIGQUERY_REGION" \
             --use_legacy_sql=false < /tmp/bigquery-security-migration.sql
+
+          sed \
+            -e "s/YOUR_PROJECT\\.khatabook/${GOOGLE_CLOUD_PROJECT_ID}.${BIGQUERY_DATASET}/g" \
+            ../bigquery/migrations/20260908173000_add_ibim_operational_tables.sql > /tmp/bigquery-ibim-migration.sql
+
+          bq query \
+            --project_id="$GOOGLE_CLOUD_PROJECT_ID" \
+            --location="$BIGQUERY_REGION" \
+            --use_legacy_sql=false < /tmp/bigquery-ibim-migration.sql
+
+          sed \
+            -e "s/YOUR_PROJECT\\.khatabook/${GOOGLE_CLOUD_PROJECT_ID}.${BIGQUERY_DATASET}/g" \
+            ../bigquery/migrations/20260908190000_add_ibim_delivery_and_reconciliation.sql > /tmp/bigquery-ibim-governance-migration.sql
+
+          bq query \
+            --project_id="$GOOGLE_CLOUD_PROJECT_ID" \
+            --location="$BIGQUERY_REGION" \
+            --use_legacy_sql=false < /tmp/bigquery-ibim-governance-migration.sql
+
+          sed \
+            -e "s/YOUR_PROJECT\\.khatabook/${GOOGLE_CLOUD_PROJECT_ID}.${BIGQUERY_DATASET}/g" \
+            ../bigquery/migrations/20260908200000_add_business_application_boundary.sql > /tmp/bigquery-application-boundary-migration.sql
+
+          bq query \
+            --project_id="$GOOGLE_CLOUD_PROJECT_ID" \
+            --location="$BIGQUERY_REGION" \
+            --use_legacy_sql=false < /tmp/bigquery-application-boundary-migration.sql
 
       - name: Build
         run: npm run build
@@ -302,6 +329,20 @@ jobs:
             exit 1
           fi
           echo "Backend health check passed: $health_url"
+
+          ready_url="${BACKEND_DEPLOYMENT_URL}/health/ready"
+          ready_status="$(curl --silent --show-error --location \
+            --retry 3 --retry-delay 2 --max-time 30 \
+            -H 'Accept: application/json' \
+            -H "x-vercel-protection-bypass: ${VERCEL_AUTOMATION_BYPASS_SECRET}" \
+            -o "$response_file" -w '%{http_code}' \
+            "$ready_url")"
+          if [ "$ready_status" != "200" ] || ! jq -e '.ok == true and .database == "connected"' "$response_file" > /dev/null 2>&1; then
+            echo "Backend readiness check failed: $ready_url"
+            head -c 1000 "$response_file"
+            exit 1
+          fi
+          echo "Backend readiness check passed: $ready_url"
 
   frontend:
     name: Frontend — build & deploy to Vercel

@@ -4,10 +4,25 @@ import crypto from "node:crypto";
 import { z } from "zod";
 import { authenticator } from "otplib";
 import { prisma } from "../lib/prisma";
-import { signToken, requireAuth, AuthedRequest } from "../middleware/auth";
+import { signToken, requireAuth, requireIdentity, AuthedRequest } from "../middleware/auth";
 import { sendOtp, sendWelcomeEmail, sendPasswordResetEmail, sendVerificationEmail } from "../services/notifyService";
 
 export const authRouter = Router();
+
+authRouter.get("/application/businesses", requireIdentity, async (req: AuthedRequest, res) => {
+  const memberships = await prisma.userBusiness.findMany({ where: { userId: req.userId }, include: { business: { select: { id: true, name: true, applicationId: true } } } });
+  res.json({ businesses: memberships.map((membership) => ({ ...membership.business, role: membership.role })) });
+});
+
+authRouter.patch("/application/businesses/:id", requireIdentity, async (req: AuthedRequest, res) => {
+  const parsed = z.object({ applicationId: z.enum(["IBIM", "YARDLOGIC"]) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const membership = await prisma.userBusiness.findUnique({ where: { userId_businessId: { userId: req.userId!, businessId: req.params.id } }, include: { business: { select: { applicationId: true } } } });
+  if (!membership || !["OWNER", "ADMIN"].includes(membership.role)) return res.status(403).json({ error: "Only an owner or administrator can classify this business" });
+  if (membership.business.applicationId !== "UNASSIGNED") return res.status(409).json({ error: "This business is already classified" });
+  await prisma.business.update({ where: { id: req.params.id }, data: { applicationId: parsed.data.applicationId } });
+  res.json({ classified: true, applicationId: parsed.data.applicationId });
+});
 
 function createRawToken() {
   return crypto.randomBytes(32).toString("base64url");
@@ -26,7 +41,9 @@ async function issueAuthToken(userId: string, type: "EMAIL_VERIFICATION" | "PASS
 // Returns every business this user belongs to, with their role in
 // each — the frontend uses this to render the business switcher and
 // to pick which X-Business-Id to send on subsequent requests.
-async function userWithBusinesses(userId: string) {
+type ApplicationId = "IBIM" | "YARDLOGIC";
+
+async function userWithBusinesses(userId: string, applicationId?: ApplicationId) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     include: {
@@ -35,6 +52,7 @@ async function userWithBusinesses(userId: string) {
           business: {
             select: {
               id: true, name: true, gstin: true, address: true, logoUrl: true, defaultTax: true,
+              applicationId: true,
               ownerName: true, ownerPhone: true, ownerEmail: true, stateName: true, stateCode: true,
               gstnType: true, financialYearStart: true, invoicePrefix: true, invoiceStartNumber: true,
               estimatePrefix: true, estimateStartNumber: true, challanPrefix: true, challanStartNumber: true,
@@ -48,9 +66,12 @@ async function userWithBusinesses(userId: string) {
     },
   });
   if (!user) return user;
+  const businesses = process.env.APPLICATION_ID === "ALL" && (applicationId === "IBIM" || applicationId === "YARDLOGIC")
+    ? user.businesses.filter((membership) => membership.business.applicationId === applicationId)
+    : user.businesses;
   return {
     ...user,
-    businesses: user.businesses.map((membership) => ({
+    businesses: businesses.map((membership) => ({
       ...membership,
       business: {
         ...membership.business,
@@ -79,12 +100,13 @@ const signupSchema = z.object({
   identifier: identifierSchema,
   password: z.string().min(8).max(128),
   businessName: z.string().trim().min(2).max(120),
+  applicationId: z.enum(["IBIM", "YARDLOGIC"]).default("YARDLOGIC"),
 });
 
 authRouter.post("/signup", async (req, res) => {
   const parsed = signupSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const { name, identifier, password, businessName } = parsed.data;
+  const { name, identifier, password, businessName, applicationId } = parsed.data;
   const field = isEmail(identifier) ? "email" : "phone";
 
   const existing = await prisma.user.findFirst({ where: { [field]: identifier } as any });
@@ -96,11 +118,11 @@ authRouter.post("/signup", async (req, res) => {
       name,
       [field]: identifier,
       passwordHash,
-      businesses: { create: { role: "OWNER", business: { create: { name: businessName } } } },
+      businesses: { create: { role: "OWNER", business: { create: { name: businessName, applicationId } } } },
     } as any,
   });
 
-  const full = await userWithBusinesses(user.id);
+  const full = await userWithBusinesses(user.id, applicationId);
   if (field === "email") {
     const verificationToken = await issueAuthToken(user.id, "EMAIL_VERIFICATION", 24 * 60 * 60 * 1000);
     try {
@@ -196,12 +218,13 @@ const loginSchema = z.object({
   identifier: identifierSchema,
   password: z.string().min(1).max(128),
   totpCode: z.string().optional(), // required only if the account has 2FA enabled
+  applicationId: z.enum(["IBIM", "YARDLOGIC"]).optional(),
 });
 
 authRouter.post("/login", async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const { identifier, password, totpCode } = parsed.data;
+  const { identifier, password, totpCode, applicationId } = parsed.data;
   const user = await prisma.user.findFirst({ where: { OR: [{ email: identifier }, { phone: identifier }] } });
   if (!user?.passwordHash) return res.status(401).json({ error: "Invalid credentials" });
 
@@ -218,7 +241,7 @@ authRouter.post("/login", async (req, res) => {
     if (!ok) return res.status(401).json({ error: "Invalid 2FA code" });
   }
 
-  const full = await userWithBusinesses(user.id);
+  const full = await userWithBusinesses(user.id, applicationId);
   res.json({ token: signToken(user.id), user: { id: user.id, name: user.name }, businesses: full!.businesses });
 });
 

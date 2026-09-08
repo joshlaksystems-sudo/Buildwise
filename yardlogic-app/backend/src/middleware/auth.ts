@@ -12,6 +12,18 @@ export interface AuthedRequest extends Request {
   role?: string;
 }
 
+export async function requireIdentity(req: AuthedRequest, res: Response, next: NextFunction) {
+  const header = req.headers.authorization;
+  if (!header?.startsWith("Bearer ")) return res.status(401).json({ error: "Missing bearer token" });
+  try {
+    const payload = jwt.verify(header.slice(7), JWT_SECRET) as { userId: string };
+    req.userId = payload.userId;
+    next();
+  } catch {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+}
+
 // Every protected route expects a bearer token AND an
 // X-Business-Id header, since one login can belong to many
 // businesses (multi-shop owners) or many logins to one business
@@ -46,9 +58,20 @@ export async function requireAuth(req: AuthedRequest, res: Response, next: NextF
 
   const membership = await prisma.userBusiness.findUnique({
     where: { userId_businessId: { userId, businessId } },
+    include: { business: { select: { applicationId: true } } },
   });
   if (!membership) {
     return res.status(403).json({ error: "You do not have access to this business" });
+  }
+
+  if (process.env.APPLICATION_ID === "ALL") {
+    const requestedApplication = req.header("X-Application-Id");
+    if (requestedApplication !== "IBIM" && requestedApplication !== "YARDLOGIC") {
+      return res.status(400).json({ error: "Missing or invalid X-Application-Id header" });
+    }
+    if (membership.business.applicationId !== requestedApplication) {
+      return res.status(403).json({ error: "This business belongs to a different application" });
+    }
   }
 
   req.userId = userId;
