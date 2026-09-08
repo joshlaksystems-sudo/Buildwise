@@ -46,6 +46,11 @@ export const ALLOWED_TABLES = [
   "delivery_challan_items", "expenses", "payments", "salesman_logs",
 ];
 
+const FORBIDDEN_FIELDS = new Set([
+  "password", "password_hash", "passwordhash", "token", "accesstoken", "access_token",
+  "refreshtoken", "refresh_token", "secret", "private_key", "privatekey", "apikey", "api_key",
+]);
+
 const CAMEL_TO_SNAKE: Record<string, string> = {
   businessId: "business_id", customerId: "customer_id", supplierId: "supplier_id",
   invoiceId: "invoice_id", billId: "bill_id", itemId: "item_id", userId: "user_id",
@@ -70,8 +75,12 @@ function normalizeTimestamp(value: unknown): unknown {
 }
 
 export function normalizeRows(rows: Record<string, unknown>[]) {
-  return rows.map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => {
+  return rows.map((row) => Object.fromEntries(Object.entries(row).filter(([key]) => !FORBIDDEN_FIELDS.has(key.trim().toLowerCase())).map(([key, value]) => {
     const normalizedKey = CAMEL_TO_SNAKE[key] || key.trim().toLowerCase();
     return [normalizedKey, TIMESTAMP_COLUMNS.has(normalizedKey) ? normalizeTimestamp(value) : value];
   })));
+}
+
+export function containsForbiddenField(row: Record<string, unknown>) {
+  return Object.keys(row).some((key) => FORBIDDEN_FIELDS.has(key.trim().toLowerCase()));
 }

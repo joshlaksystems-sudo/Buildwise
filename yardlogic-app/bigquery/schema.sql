@@ -38,7 +38,6 @@ CREATE TABLE IF NOT EXISTS `YOUR_PROJECT.khatabook.users` (
   name           STRING NOT NULL,
   email          STRING NOT NULL,
   phone          STRING,
-  password_hash  STRING NOT NULL,   -- never send plaintext passwords through this pipeline
   created_at     TIMESTAMP NOT NULL
 )
 PARTITION BY DATE(created_at);

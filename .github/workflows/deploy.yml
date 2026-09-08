@@ -143,6 +143,15 @@ jobs:
             --location="$BIGQUERY_REGION" \
             --use_legacy_sql=false < /tmp/bigquery-migration.sql
 
+          sed \
+            -e "s/YOUR_PROJECT\\.khatabook/${GOOGLE_CLOUD_PROJECT_ID}.${BIGQUERY_DATASET}/g" \
+            ../bigquery/migrations/20260908150000_remove_password_hash.sql > /tmp/bigquery-security-migration.sql
+
+          bq query \
+            --project_id="$GOOGLE_CLOUD_PROJECT_ID" \
+            --location="$BIGQUERY_REGION" \
+            --use_legacy_sql=false < /tmp/bigquery-security-migration.sql
+
       - name: Build
         run: npm run build
 

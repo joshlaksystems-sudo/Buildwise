@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { bigquery, DATASET, TABLE_ENUMS, ALLOWED_TABLES, normalizeRows } from "../lib/bigquery";
+import { bigquery, DATASET, TABLE_ENUMS, ALLOWED_TABLES, containsForbiddenField, normalizeRows } from "../lib/bigquery";
 
 // Apps Script posts here as:
 // { "table": "invoices", "rows": [{...}, {...}] }
@@ -23,6 +23,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   if (!Array.isArray(rows) || rows.length === 0) {
     return res.status(400).json({ error: "rows must be a non-empty array" });
+  }
+
+  if (rows.some(containsForbiddenField)) {
+    return res.status(400).json({ error: "Sensitive credential fields are not accepted by the analytics ingest pipeline" });
   }
 
   // Validate enum columns before they ever reach BigQuery — a bad
