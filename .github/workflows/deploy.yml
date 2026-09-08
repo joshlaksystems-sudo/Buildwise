@@ -365,7 +365,7 @@ jobs:
 
       - name: Type-check & build
         env:
-          VITE_API_URL: ${{ needs.backend.outputs.deployment_url }}
+          VITE_API_URL: ${{ needs.backend.outputs.deployment_url || secrets.BACKEND_PRODUCTION_URL }}
           VITE_APPLICATION_ID: ${{ secrets.APPLICATION_ID || vars.APPLICATION_ID }}
           VITE_COMPANY_NAME: ${{ secrets.VITE_COMPANY_NAME }}
           VITE_PRODUCT_NAME: ${{ secrets.VITE_PRODUCT_NAME }}
@@ -373,6 +373,11 @@ jobs:
           VITE_GCP_PROJECT_ID: ${{ secrets.VITE_GCP_PROJECT_ID }}
         run: |
           test -n "$VITE_APPLICATION_ID"
+          if [ -z "$VITE_API_URL" ]; then
+            echo "VITE_API_URL is empty. Backend deployment output was not produced and BACKEND_PRODUCTION_URL is not configured."
+            exit 1
+          fi
+          echo "Frontend API target: $VITE_API_URL"
           npm run build
 
       - name: Clean stale Vercel config
@@ -381,12 +386,14 @@ jobs:
       - name: Deploy frontend to Vercel
         env:
           APPLICATION_ID: ${{ secrets.APPLICATION_ID || vars.APPLICATION_ID }}
+          VITE_API_URL: ${{ needs.backend.outputs.deployment_url || secrets.BACKEND_PRODUCTION_URL }}
         run: |
+          test -n "$VITE_API_URL"
           npx vercel@latest deploy --prod --yes \
             --token="${{ secrets.VERCEL_TOKEN }}" \
             --scope="${{ secrets.VERCEL_ORG_ID }}" \
             --project="${{ secrets.VERCEL_FRONTEND_PROJECT_ID }}" \
-            --build-env "VITE_API_URL=${{ needs.backend.outputs.deployment_url }}" \
+            --build-env "VITE_API_URL=$VITE_API_URL" \
             --build-env "VITE_APPLICATION_ID=$APPLICATION_ID" \
             --build-env "VITE_COMPANY_NAME=${{ secrets.VITE_COMPANY_NAME }}" \
             --build-env "VITE_PRODUCT_NAME=${{ secrets.VITE_PRODUCT_NAME }}" \
