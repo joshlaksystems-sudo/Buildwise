@@ -1,6 +1,4 @@
-const BASE_URL = import.meta.env.VITE_API_URL || (
-  import.meta.env.DEV ? "http://localhost:4000" : "https://yardlogic-backend.vercel.app"
-);
+const BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:4000" : "");
 const REQUEST_TIMEOUT_MS = 15000;
 const AI_REQUEST_TIMEOUT_MS = 50000;
 const MAX_GET_RETRIES = 2;
@@ -51,7 +49,7 @@ export async function api<T = any>(path: string, options: RequestInit = {}): Pro
       if (error instanceof DOMException && error.name === "AbortError") {
         if (attempt === retries) throw new Error("The server took too long to respond. Please try again.");
       } else if (error instanceof TypeError) {
-        if (attempt === retries) throw new Error("Unable to reach the server. Check your connection and try again.");
+        if (attempt === retries) throw new Error(`Unable to reach the server at ${BASE_URL || "the configured API"}. Check the deployment API URL and try again.`);
       } else {
         throw error;
       }
