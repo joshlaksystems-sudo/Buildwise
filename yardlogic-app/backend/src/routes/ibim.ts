@@ -6,6 +6,7 @@ import { prisma } from "../lib/prisma";
 import { requireAuth, requireRole, AuthedRequest, signIbimProposalAccessToken, verifyIbimProposalAccessToken } from "../middleware/auth";
 import { memberSchema, normalizeImportedMember, parseCsvRows, proposalDataSchema } from "../services/ibimValidation";
 import { sendGmailEmail } from "../services/notifyService";
+import { writeAudit } from "../services/audit";
 
 export const ibimRouter = Router();
 ibimRouter.use(requireAuth);
@@ -80,6 +81,19 @@ ibimRouter.get("/overview", async (req: AuthedRequest, res) => {
   res.json({ members, openProposals, renewalsDue, openTasks: tasks, premium: premium._sum.amount?.toString() || "0" });
 });
 
+ibimRouter.get("/renewals", async (req: AuthedRequest, res) => {
+  const from = req.query.from ? new Date(String(req.query.from)) : new Date();
+  const to = req.query.to ? new Date(String(req.query.to)) : new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return res.status(400).json({ error: "Invalid renewal date range" });
+  const renewals = await prisma.ibimPolicy.findMany({ where: { businessId: req.businessId, status: "ACTIVE", renewalDate: { gte: from, lte: to } }, include: { member: true }, orderBy: { renewalDate: "asc" } });
+  res.json({ renewals });
+});
+
+ibimRouter.get("/audit", async (req: AuthedRequest, res) => {
+  const logs = await prisma.auditLog.findMany({ where: { businessId: req.businessId, entityType: { in: ["IbimMember", "IbimProposal", "IbimPolicy", "IbimTransaction", "IbimWorkflowTask"] } }, orderBy: { createdAt: "desc" }, take: 100 });
+  res.json({ logs });
+});
+
 ibimRouter.get("/members", async (req: AuthedRequest, res) => {
   const members = await prisma.ibimMember.findMany({ where: { businessId: req.businessId }, orderBy: { updatedAt: "desc" }, take: 100 });
   res.json({ members });
@@ -89,6 +103,7 @@ ibimRouter.post("/members", requireRole("OWNER", "ADMIN", "STAFF"), async (req: 
   const parsed = memberSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const member = await prisma.ibimMember.create({ data: { ...parsed.data, status: "ACTIVE", source: "MANUAL", businessId: req.businessId! } });
+  await writeAudit({ businessId: req.businessId!, userId: req.userId, action: "ibim.member.create", entityType: "IbimMember", entityId: member.id, detail: { source: "MANUAL" } });
   res.status(201).json({ member });
 });
 
@@ -102,6 +117,8 @@ ibimRouter.post("/members/import", requireRole("OWNER", "ADMIN"), async (req: Au
     const parsed = memberSchema.safeParse(row);
     if (!parsed.success) { rejected.push({ row: index + 1, issues: parsed.error.flatten().fieldErrors }); continue; }
     if (!parsed.data.email && !parsed.data.phone) flagged.push({ row: index + 1, reason: "No email or phone supplied" });
+    const duplicate = await prisma.ibimMember.findFirst({ where: { businessId: req.businessId, OR: [{ email: parsed.data.email || undefined }, { phone: parsed.data.phone || undefined }, { externalRef: parsed.data.externalRef || undefined }] } });
+    if (duplicate) { flagged.push({ row: index + 1, reason: `Possible duplicate of ${duplicate.legalName}` }); continue; }
     const member = await prisma.ibimMember.create({ data: { ...parsed.data, status: "ACTIVE", source: "IMPORT", businessId: req.businessId! } });
     accepted.push(member.id);
   }
@@ -118,6 +135,8 @@ ibimRouter.post("/members/import.csv", requireRole("OWNER", "ADMIN"), csvUpload.
     const parsed = normalizeImportedMember(row);
     if (!parsed.success) { rejected.push({ row: index + 2, issues: parsed.error.flatten().fieldErrors }); continue; }
     if (!parsed.data.email && !parsed.data.phone) flagged.push({ row: index + 2, reason: "No email or phone supplied" });
+    const duplicate = await prisma.ibimMember.findFirst({ where: { businessId: req.businessId, OR: [{ email: parsed.data.email || undefined }, { phone: parsed.data.phone || undefined }, { externalRef: parsed.data.externalRef || undefined }] } });
+    if (duplicate) { flagged.push({ row: index + 2, reason: `Possible duplicate of ${duplicate.legalName}` }); continue; }
     const member = await prisma.ibimMember.create({ data: { ...parsed.data, status: "ACTIVE", source: "IMPORT", businessId: req.businessId! } });
     accepted.push(member.id);
   }
@@ -145,6 +164,7 @@ ibimRouter.post("/proposals", requireRole("OWNER", "ADMIN", "STAFF"), async (req
     await tx.ibimWorkflowTask.create({ data: { businessId, memberId: parsed.data.memberId, proposalId: created.id, type: parsed.data.type === "RENEWAL" ? "RENEWAL" : "NEW_BUSINESS", status: "OPEN", note: "Review submitted proposal" } });
     return created;
   });
+  await writeAudit({ businessId, userId: req.userId, action: "ibim.proposal.create", entityType: "IbimProposal", entityId: proposal.id, detail: { type: parsed.data.type } });
   res.status(201).json({ proposal });
 });
 
@@ -173,6 +193,7 @@ ibimRouter.post("/policies", requireRole("OWNER", "ADMIN", "STAFF"), async (req:
   const businessId = req.businessId!;
   if (!(await memberInBusiness(parsed.data.memberId, businessId))) return res.status(400).json({ error: "Member does not belong to this business" });
   const policy = await prisma.ibimPolicy.create({ data: { ...parsed.data, businessId, premium: parsed.data.premium, commission: parsed.data.commission } });
+  await writeAudit({ businessId, userId: req.userId, action: "ibim.policy.create", entityType: "IbimPolicy", entityId: policy.id, detail: { policyNumber: policy.policyNumber } });
   res.status(201).json({ policy });
 });
 
@@ -187,6 +208,7 @@ ibimRouter.post("/transactions", requireRole("OWNER", "ADMIN", "ACCOUNTANT"), as
   const policy = await prisma.ibimPolicy.findFirst({ where: { id: parsed.data.policyId, businessId: req.businessId }, select: { id: true } });
   if (!policy) return res.status(400).json({ error: "Policy does not belong to this business" });
   const transaction = await prisma.ibimTransaction.create({ data: { ...parsed.data, businessId: req.businessId! } });
+  await writeAudit({ businessId: req.businessId!, userId: req.userId, action: "ibim.transaction.create", entityType: "IbimTransaction", entityId: transaction.id, detail: { type: transaction.type, amount: transaction.amount.toString() } });
   res.status(201).json({ transaction });
 });
 
