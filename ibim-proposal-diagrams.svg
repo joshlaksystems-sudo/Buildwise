@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1900" viewBox="0 0 1400 1900" role="img" aria-labelledby="title description">
+  <title id="title">iBIM proposal workflow diagrams</title>
+  <desc id="description">Architecture, use case, workflow state and swimlane diagrams for iBIM proposals.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#18324b"/>
+    </marker>
+    <style>
+      .panel { fill: #f7f9fb; stroke: #b8c8d6; stroke-width: 2; }
+      .title { font: 700 25px Georgia, serif; fill: #102a43; }
+      .label { font: 600 15px Arial, sans-serif; fill: #18324b; }
+      .small { font: 14px Arial, sans-serif; fill: #29465f; }
+      .box { fill: #ffffff; stroke: #47718f; stroke-width: 2; rx: 8; }
+      .actor { fill: #f0c36a; stroke: #a87819; stroke-width: 2; }
+      .service { fill: #d9eee8; stroke: #35766c; stroke-width: 2; }
+      .data { fill: #e5eaf4; stroke: #52678d; stroke-width: 2; }
+      .state { fill: #fff2d6; stroke: #b27b20; stroke-width: 2; rx: 18; }
+      .line { stroke: #18324b; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+      .dashed { stroke: #527089; stroke-width: 2; stroke-dasharray: 8 6; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="1400" height="1900" fill="#ffffff"/>
+  <text x="70" y="55" class="title" font-size="32">iBIM Proposal Management</text>
+  <text x="70" y="83" class="small">Visual architecture, use cases, workflow states and delivery lanes</text>
+
+  <rect x="50" y="110" width="1300" height="410" class="panel"/>
+  <text x="80" y="150" class="title">1. Proposal architecture</text>
+  <rect x="85" y="190" width="210" height="75" class="actor"/><text x="190" y="220" text-anchor="middle" class="label">Account handler</text><text x="190" y="244" text-anchor="middle" class="small">Creates and sends</text>
+  <rect x="85" y="330" width="210" height="75" class="actor"/><text x="190" y="360" text-anchor="middle" class="label">Reviewer</text><text x="190" y="384" text-anchor="middle" class="small">Approves and changes</text>
+  <rect x="350" y="210" width="245" height="190" class="service"/><text x="472" y="245" text-anchor="middle" class="label">iBIM frontend</text><text x="472" y="285" text-anchor="middle" class="small">Proposal workspace</text><text x="472" y="315" text-anchor="middle" class="small">Editor and versions</text><text x="472" y="345" text-anchor="middle" class="small">Tasks and timeline</text>
+  <rect x="660" y="210" width="270" height="190" class="service"/><text x="795" y="245" text-anchor="middle" class="label">Express backend</text><text x="795" y="285" text-anchor="middle" class="small">Tenant and role checks</text><text x="795" y="315" text-anchor="middle" class="small">Proposal workflow API</text><text x="795" y="345" text-anchor="middle" class="small">Secure links and audit</text>
+  <rect x="995" y="190" width="260" height="75" class="data"/><text x="1125" y="220" text-anchor="middle" class="label">PostgreSQL / Prisma</text><text x="1125" y="244" text-anchor="middle" class="small">Proposals, policies, tasks</text>
+  <rect x="995" y="330" width="260" height="75" class="data"/><text x="1125" y="360" text-anchor="middle" class="label">Email and documents</text><text x="1125" y="384" text-anchor="middle" class="small">Secure proposal delivery</text>
+  <path d="M295 228 H350" class="line"/><path d="M295 368 H350" class="line"/><path d="M595 305 H660" class="line"/><path d="M930 245 H995" class="line"/><path d="M930 365 H995" class="line"/>
+
+  <rect x="50" y="550" width="1300" height="350" class="panel"/>
+  <text x="80" y="590" class="title">2. Proposal use-case flow</text>
+  <circle cx="115" cy="715" r="42" class="actor"/><text x="115" y="711" text-anchor="middle" class="label">Handler</text><text x="115" y="731" text-anchor="middle" class="small">starts</text>
+  <rect x="190" y="675" width="150" height="80" class="box"/><text x="265" y="710" text-anchor="middle" class="label">Create</text><text x="265" y="733" text-anchor="middle" class="small">proposal</text>
+  <rect x="395" y="675" width="150" height="80" class="box"/><text x="470" y="710" text-anchor="middle" class="label">Review</text><text x="470" y="733" text-anchor="middle" class="small">and approve</text>
+  <rect x="600" y="675" width="150" height="80" class="box"/><text x="675" y="710" text-anchor="middle" class="label">Send</text><text x="675" y="733" text-anchor="middle" class="small">secure link</text>
+  <circle cx="855" cy="715" r="42" class="actor"/><text x="855" y="711" text-anchor="middle" class="label">Client</text><text x="855" y="731" text-anchor="middle" class="small">responds</text>
+  <rect x="955" y="675" width="150" height="80" class="service"/><text x="1030" y="710" text-anchor="middle" class="label">Bind policy</text><text x="1030" y="733" text-anchor="middle" class="small">if accepted</text>
+  <rect x="1160" y="675" width="140" height="80" class="data"/><text x="1230" y="710" text-anchor="middle" class="label">Payment</text><text x="1230" y="733" text-anchor="middle" class="small">and ledger</text>
+  <path d="M157 715 H190" class="line"/><path d="M340 715 H395" class="line"/><path d="M545 715 H600" class="line"/><path d="M750 715 H813" class="line"/><path d="M897 715 H955" class="line"/><path d="M1105 715 H1160" class="line"/>
+  <path d="M855 760 V820 H470 V755" class="dashed"/><text x="660" y="850" text-anchor="middle" class="small">Changes requested: revise proposal and repeat review</text>
+
+  <rect x="50" y="930" width="1300" height="300" class="panel"/>
+  <text x="80" y="970" class="title">3. Proposal workflow states</text>
+  <rect x="100" y="1050" width="145" height="58" class="state"/><text x="172" y="1085" text-anchor="middle" class="label">Draft</text>
+  <rect x="300" y="1050" width="145" height="58" class="state"/><text x="372" y="1085" text-anchor="middle" class="label">In review</text>
+  <rect x="500" y="1050" width="145" height="58" class="state"/><text x="572" y="1085" text-anchor="middle" class="label">Approved</text>
+  <rect x="700" y="1050" width="145" height="58" class="state"/><text x="772" y="1085" text-anchor="middle" class="label">Sent</text>
+  <rect x="900" y="1050" width="145" height="58" class="state"/><text x="972" y="1085" text-anchor="middle" class="label">Accepted</text>
+  <rect x="1100" y="1050" width="145" height="58" class="service"/><text x="1172" y="1085" text-anchor="middle" class="label">Bound policy</text>
+  <path d="M245 1079 H300" class="line"/><path d="M445 1079 H500" class="line"/><path d="M645 1079 H700" class="line"/><path d="M845 1079 H900" class="line"/><path d="M1045 1079 H1100" class="line"/>
+  <text x="180" y="1165" class="small">Changes return to Draft</text><text x="760" y="1165" class="small">Declined or expired closes with a follow-up task</text>
+
+  <rect x="50" y="1260" width="1300" height="580" class="panel"/>
+  <text x="80" y="1300" class="title">4. Proposal swimlane</text>
+  <line x1="300" y1="1330" x2="300" y2="1800" stroke="#b8c8d6" stroke-width="2"/><line x1="520" y1="1330" x2="520" y2="1800" stroke="#b8c8d6" stroke-width="2"/><line x1="755" y1="1330" x2="755" y2="1800" stroke="#b8c8d6" stroke-width="2"/><line x1="1010" y1="1330" x2="1010" y2="1800" stroke="#b8c8d6" stroke-width="2"/>
+  <text x="175" y="1345" text-anchor="middle" class="label">Handler</text><text x="410" y="1345" text-anchor="middle" class="label">Frontend</text><text x="637" y="1345" text-anchor="middle" class="label">API and database</text><text x="880" y="1345" text-anchor="middle" class="label">Client</text><text x="1155" y="1345" text-anchor="middle" class="label">Finance</text>
+  <text x="75" y="1390" class="small">Select member</text><path d="M210 1400 H410" class="line"/><text x="325" y="1388" class="small">Load workspace</text><path d="M460 1430 H637" class="line"/><text x="470" y="1420" class="small">Request context</text><path d="M700 1460 H880" class="line"/><text x="710" y="1450" class="small">Send secure link</text><path d="M950 1490 H410" class="line"/><text x="790" y="1480" class="small">Client decision</text><path d="M460 1530 H637" class="line"/><text x="470" y="1520" class="small">Save status and audit</text><path d="M700 1570 H1155" class="line"/><text x="850" y="1560" class="small">Accepted: create ledger</text><path d="M1100 1610 H700" class="line"/><text x="850" y="1600" class="small">Payment state</text><path d="M637 1660 H410" class="line"/><text x="480" y="1650" class="small">Show next action</text><path d="M410 1700 H210" class="line"/><text x="250" y="1690" class="small">Follow-up task</text>
+  <text x="75" y="1760" class="small">The system preserves every version, decision, payment state and follow-up action.</text>
+</svg>

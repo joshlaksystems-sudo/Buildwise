@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import multer from "multer";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
-import { requireAuth, requireRole, AuthedRequest, signIbimProposalAccessToken, verifyIbimProposalAccessToken } from "../middleware/auth";
+import { hasPermission, requireAuth, requirePermission, requireRole, AuthedRequest, signIbimProposalAccessToken, verifyIbimProposalAccessToken } from "../middleware/auth";
 import { memberSchema, normalizeImportedMember, parseCsvRows, proposalDataSchema } from "../services/ibimValidation";
 import { sendGmailEmail } from "../services/notifyService";
 import { writeAudit } from "../services/audit";
@@ -161,7 +161,7 @@ ibimRouter.get("/renewals/calendar", async (req: AuthedRequest, res) => {
   res.json({ overdue, next30, next60, next90, total: policies.length });
 });
 
-ibimRouter.post("/renewals/reminders", requireRole("OWNER", "ADMIN", "STAFF"), async (req: AuthedRequest, res) => {
+ibimRouter.post("/renewals/reminders", requirePermission("ACTIONS_MANAGE"), async (req: AuthedRequest, res) => {
   const now = new Date();
   const in90 = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
   const policies = await prisma.ibimPolicy.findMany({ where: { businessId: req.businessId, status: "ACTIVE", renewalDate: { gte: now, lte: in90 } }, select: { id: true, memberId: true, renewalDate: true, policyNumber: true } });
@@ -218,7 +218,7 @@ ibimRouter.get("/members", async (req: AuthedRequest, res) => {
   res.json({ members });
 });
 
-ibimRouter.post("/members", requireRole("OWNER", "ADMIN", "STAFF"), async (req: AuthedRequest, res) => {
+ibimRouter.post("/members", requirePermission("MEMBERS_EDIT"), async (req: AuthedRequest, res) => {
   const parsed = memberSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const member = await prisma.ibimMember.create({ data: { ...parsed.data, status: "ACTIVE", source: "MANUAL", businessId: req.businessId! } });
@@ -276,13 +276,13 @@ ibimRouter.get("/proposals", async (req: AuthedRequest, res) => {
   res.json({ proposals });
 });
 
-ibimRouter.post("/proposals/:id/access-link", requireRole("OWNER", "ADMIN", "STAFF"), async (req: AuthedRequest, res) => {
+ibimRouter.post("/proposals/:id/access-link", requirePermission("PROPOSALS_MANAGE"), async (req: AuthedRequest, res) => {
   const proposal = await prisma.ibimProposal.findFirst({ where: { id: req.params.id, businessId: req.businessId }, select: { id: true } });
   if (!proposal) return res.status(404).json({ error: "Proposal not found" });
   res.json({ token: signIbimProposalAccessToken(proposal.id) });
 });
 
-ibimRouter.post("/proposals", requireRole("OWNER", "ADMIN", "STAFF"), async (req: AuthedRequest, res) => {
+ibimRouter.post("/proposals", requirePermission("PROPOSALS_MANAGE"), async (req: AuthedRequest, res) => {
   const parsed = proposalSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const businessId = req.businessId!;
@@ -296,7 +296,7 @@ ibimRouter.post("/proposals", requireRole("OWNER", "ADMIN", "STAFF"), async (req
   res.status(201).json({ proposal });
 });
 
-ibimRouter.post("/proposals/:id/renew", requireRole("OWNER", "ADMIN", "STAFF"), async (req: AuthedRequest, res) => {
+ibimRouter.post("/proposals/:id/renew", requirePermission("PROPOSALS_MANAGE"), async (req: AuthedRequest, res) => {
   const previous = await prisma.ibimProposal.findFirst({ where: { id: req.params.id, businessId: req.businessId } });
   if (!previous) return res.status(404).json({ error: "Proposal not found" });
   const renewal = await prisma.$transaction(async (tx) => {
@@ -307,7 +307,7 @@ ibimRouter.post("/proposals/:id/renew", requireRole("OWNER", "ADMIN", "STAFF"), 
   res.status(201).json({ proposal: renewal });
 });
 
-ibimRouter.patch("/proposals/:id/status", requireRole("OWNER", "ADMIN", "STAFF"), async (req: AuthedRequest, res) => {
+ibimRouter.patch("/proposals/:id/status", requirePermission("PROPOSALS_MANAGE"), async (req: AuthedRequest, res) => {
   const parsed = z.object({
     status: z.enum(["DRAFT", "SUBMITTED", "PROPOSAL_RECEIVED", "IN_REVIEW", "AWAITING_UNDERWRITING", "QUOTE_APPROVED", "QUOTE_PREPARED", "QUOTE_SENT", "QUOTED", "ACCEPTED", "BOUND", "DECLINED", "RENEWAL_OVERDUE", "LAPSED"]),
     policyNumber: z.string().trim().min(2).max(100).optional(),
@@ -320,6 +320,7 @@ ibimRouter.patch("/proposals/:id/status", requireRole("OWNER", "ADMIN", "STAFF")
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   if (parsed.data.status === "BOUND" && !parsed.data.policyNumber) return res.status(422).json({ error: "policyNumber is required when binding a proposal" });
+  if (parsed.data.status === "BOUND" && !await hasPermission(req, "POLICIES_BIND")) return res.status(403).json({ error: "Missing permission: POLICIES_BIND" });
   const existing = await prisma.ibimProposal.findFirst({ where: { id: req.params.id, businessId: req.businessId }, include: { member: true } });
   if (!existing) return res.status(404).json({ error: "Proposal not found" });
   const result = await prisma.$transaction(async (tx) => {
@@ -338,7 +339,7 @@ ibimRouter.patch("/proposals/:id/status", requireRole("OWNER", "ADMIN", "STAFF")
   res.json({ updated: true, ...result });
 });
 
-ibimRouter.post("/policies", requireRole("OWNER", "ADMIN", "STAFF"), async (req: AuthedRequest, res) => {
+ibimRouter.post("/policies", requirePermission("POLICIES_BIND"), async (req: AuthedRequest, res) => {
   const parsed = policySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const businessId = req.businessId!;
@@ -353,7 +354,7 @@ ibimRouter.get("/policies", async (req: AuthedRequest, res) => {
   res.json({ policies });
 });
 
-ibimRouter.post("/transactions", requireRole("OWNER", "ADMIN", "ACCOUNTANT"), async (req: AuthedRequest, res) => {
+ibimRouter.post("/transactions", requirePermission("FINANCE_EDIT"), async (req: AuthedRequest, res) => {
   const parsed = transactionSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const policy = await prisma.ibimPolicy.findFirst({ where: { id: parsed.data.policyId, businessId: req.businessId }, select: { id: true } });
@@ -405,13 +406,13 @@ ibimRouter.get("/reports/bordereaux.csv", async (req: AuthedRequest, res) => {
   res.type("text/csv").setHeader("Content-Disposition", "attachment; filename=bordereaux.csv").send(rows.join("\n"));
 });
 
-ibimRouter.patch("/tasks/:id/complete", requireRole("OWNER", "ADMIN", "STAFF"), async (req: AuthedRequest, res) => {
+ibimRouter.patch("/tasks/:id/complete", requirePermission("ACTIONS_MANAGE"), async (req: AuthedRequest, res) => {
   const updated = await prisma.ibimWorkflowTask.updateMany({ where: { id: req.params.id, businessId: req.businessId }, data: { status: "DONE", completedAt: new Date() } });
   if (updated.count !== 1) return res.status(404).json({ error: "Task not found" });
   res.json({ updated: true });
 });
 
-ibimRouter.post("/tasks/:id/chase", requireRole("OWNER", "ADMIN", "STAFF"), async (req: AuthedRequest, res) => {
+ibimRouter.post("/tasks/:id/chase", requirePermission("ACTIONS_MANAGE"), async (req: AuthedRequest, res) => {
   const task = await prisma.ibimWorkflowTask.findFirst({ where: { id: req.params.id, businessId: req.businessId }, include: { member: true } });
   if (!task) return res.status(404).json({ error: "Task not found" });
   if (!task.member?.email) return res.status(400).json({ error: "Member has no email address" });
@@ -428,7 +429,7 @@ ibimRouter.post("/tasks/:id/chase", requireRole("OWNER", "ADMIN", "STAFF"), asyn
   }
 });
 
-ibimRouter.post("/reconciliation", requireRole("OWNER", "ADMIN", "ACCOUNTANT"), async (req: AuthedRequest, res) => {
+ibimRouter.post("/reconciliation", requirePermission("FINANCE_EDIT"), async (req: AuthedRequest, res) => {
   const parsed = z.object({ sourceSystem: z.string().trim().min(1).max(80), rows: z.array(z.object({ policyNumber: z.string().trim().optional(), externalRef: z.string().trim().optional(), status: z.string().trim().optional(), premium: z.number().optional(), renewalDate: z.coerce.date().optional() })).max(10_000) }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const results = [];

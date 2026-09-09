@@ -21,6 +21,26 @@ Staff role management enables business owners and administrators to assign roles
 | **SALESMAN** | ✅ | ❌ | ❌ | ✅ | Sales-focused, can create invoices & orders |
 | **ACCOUNTANT** | ✅ | ❌ | ✅ | ❌ | Financial operations, payment reconciliation |
 
+## iBIM Permission Matrix
+
+The iBIM application uses the following permissions for its main operational areas. The backend remains the final authority; the iBIM frontend hides navigation items that the active role cannot use.
+
+| iBIM area | OWNER / ADMIN | STAFF | SALESMAN | ACCOUNTANT |
+|---|---|---|---|---|
+| Member data | View and edit | View and edit | View and edit | View |
+| Prospects | Manage | Manage | Manage | No access |
+| Proposals and renewals | Manage | Manage | Manage | No access |
+| Policy binding | Allowed | Not allowed by default | Not allowed | Not allowed |
+| Actions and reminders | Manage | Manage | Manage | No access |
+| Payments and finance | View and edit | View only | No access | View and edit |
+| Rebates | Manage | No access | No access | Manage |
+| Budget | Manage | No access | No access | Manage |
+| Reports and exports | Full | No export by default | No export by default | Export |
+| Reconciliation | Manage | No access | No access | Edit |
+| Staff management | Manage | No access | No access | No access |
+
+The `POLICIES_BIND` permission is intentionally separate from `PROPOSALS_MANAGE`. A staff or salesman user can prepare a proposal, but cannot approve or bind it unless an owner or administrator explicitly grants that permission.
+
 ---
 
 ## Backend Endpoints
