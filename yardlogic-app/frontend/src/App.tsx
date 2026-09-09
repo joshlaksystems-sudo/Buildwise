@@ -107,7 +107,12 @@ export default function App() {
 function ApplicationHome() {
   const [unassigned, setUnassigned] = useState<Array<{ id: string; name: string; role: string }>>([]);
   const [message, setMessage] = useState("");
-  useEffect(() => { if (localStorage.getItem("token")) void api<{ businesses: Array<{ id: string; name: string; applicationId: string; role: string }> }>("/auth/application/businesses").then((result) => setUnassigned(result.businesses.filter((business) => business.applicationId === "UNASSIGNED"))).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!localStorage.getItem("token")) return;
+    void api<{ businesses: Array<{ id: string; name: string; applicationId: string; role: string }> }>("/auth/application/businesses")
+    .then((result) => setUnassigned(result.businesses.filter((business) => business.applicationId === "UNASSIGNED")))
+    .catch((error) => setMessage(error instanceof Error ? error.message : "Unable to load your workspaces"));
+  }, []);
   function choose(application: "IBIM" | "YARDLOGIC") {
     const hasUnassignedWorkspace = readStoredBusinesses().some((entry) => {
       const business = entry?.business ?? entry;
@@ -128,8 +133,10 @@ function ApplicationHome() {
         return { ...entry, applicationId };
       });
       localStorage.setItem("businesses", JSON.stringify(updatedBusinesses));
+      localStorage.setItem("businessId", id);
+      setApplicationPreference(applicationId);
       setUnassigned((items) => items.filter((item) => item.id !== id));
-      setMessage("Business classified. Select its application to continue.");
+      window.location.replace(applicationId === "IBIM" ? "/ibim" : "/");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to classify business");
     }
