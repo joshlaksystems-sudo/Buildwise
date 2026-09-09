@@ -13,7 +13,10 @@ function getBusinessId() {
   return localStorage.getItem("businessId");
 }
 function getApplicationId() {
-  return localStorage.getItem("applicationPreference") || (import.meta.env.VITE_APPLICATION_ID === "IBIM" || import.meta.env.VITE_APPLICATION_ID === "YARDLOGIC" ? import.meta.env.VITE_APPLICATION_ID : "");
+  const configured = import.meta.env.VITE_APPLICATION_ID === "IBIM" || import.meta.env.VITE_APPLICATION_ID === "YARDLOGIC"
+    ? import.meta.env.VITE_APPLICATION_ID
+    : "";
+  return configured || localStorage.getItem("applicationPreference") || "";
 }
 
 async function parseJson<T>(res: Response): Promise<T> {

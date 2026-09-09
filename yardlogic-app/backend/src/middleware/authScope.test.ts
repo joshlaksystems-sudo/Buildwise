@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateApplicationScope } from "./auth";
+import { validateApplicationScope, validateConfiguredApplicationScope } from "./auth";
 
 test("accepts matching app scope for a tenant", () => {
   assert.equal(validateApplicationScope("IBIM", "IBIM"), true);
@@ -16,4 +16,16 @@ test("rejects missing or invalid app scope values", () => {
   assert.equal(validateApplicationScope(undefined, "IBIM"), false);
   assert.equal(validateApplicationScope("OTHER", "IBIM"), false);
   assert.equal(validateApplicationScope("", "IBIM"), false);
+});
+
+test("fixed application deployments reject the other application's business", () => {
+  assert.equal(validateConfiguredApplicationScope("YARDLOGIC", undefined, "YARDLOGIC"), true);
+  assert.equal(validateConfiguredApplicationScope("YARDLOGIC", "IBIM", "IBIM"), false);
+  assert.equal(validateConfiguredApplicationScope("IBIM", "YARDLOGIC", "YARDLOGIC"), false);
+});
+
+test("shared deployments require a matching application header", () => {
+  assert.equal(validateConfiguredApplicationScope("ALL", "IBIM", "IBIM"), true);
+  assert.equal(validateConfiguredApplicationScope("ALL", "YARDLOGIC", "IBIM"), false);
+  assert.equal(validateConfiguredApplicationScope("ALL", undefined, "IBIM"), false);
 });

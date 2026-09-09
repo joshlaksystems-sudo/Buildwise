@@ -40,7 +40,10 @@ const isIbim = isMultiApplication || applicationId === "IBIM";
 const isYardLogic = isMultiApplication || applicationId === "YARDLOGIC";
 
 function selectedApplication() {
-  return readApplicationPreference();
+  const configured = import.meta.env.VITE_APPLICATION_ID === "IBIM" || import.meta.env.VITE_APPLICATION_ID === "YARDLOGIC"
+    ? import.meta.env.VITE_APPLICATION_ID
+    : "";
+  return configured || readApplicationPreference();
 }
 
 function clearAppSession() {

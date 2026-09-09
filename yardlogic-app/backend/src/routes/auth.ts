@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { z } from "zod";
 import { authenticator } from "otplib";
 import { prisma } from "../lib/prisma";
-import { signToken, requireAuth, requireIdentity, AuthedRequest } from "../middleware/auth";
+import { signToken, requireAuth, requireIdentity, AuthedRequest, validateConfiguredApplicationScope } from "../middleware/auth";
 import { sendOtp, sendWelcomeEmail, sendPasswordResetEmail, sendVerificationEmail } from "../services/notifyService";
 
 export const authRouter = Router();
@@ -87,7 +87,7 @@ function isEmail(v: string) {
   return v.includes("@");
 }
 
-const identifierSchema = z.string().trim().refine((value) => {
+const identifierSchema = z.string().trim().transform((value) => value.includes("@") ? value.toLowerCase() : value).refine((value) => {
   if (value.includes("@")) return z.string().email().safeParse(value).success;
   return /^\+?[0-9][0-9\s-]{7,19}$/.test(value);
 }, "Enter a valid email address or mobile number");
@@ -102,10 +102,15 @@ const signupSchema = z.object({
   applicationId: z.enum(["IBIM", "YARDLOGIC"]).default("YARDLOGIC"),
 });
 
+function applicationAllowed(applicationId: ApplicationId) {
+  return validateConfiguredApplicationScope(process.env.APPLICATION_ID, applicationId, applicationId);
+}
+
 authRouter.post("/signup", async (req, res) => {
   const parsed = signupSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { name, identifier, password, businessName, applicationId } = parsed.data;
+  if (!applicationAllowed(applicationId)) return res.status(403).json({ error: `This backend is configured for ${process.env.APPLICATION_ID}` });
   const field = isEmail(identifier) ? "email" : "phone";
 
   const existing = await prisma.user.findFirst({ where: { [field]: identifier } as any });
@@ -225,6 +230,7 @@ authRouter.post("/login", async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { identifier, password, totpCode, applicationId } = parsed.data;
+  if (applicationId && !applicationAllowed(applicationId)) return res.status(403).json({ error: `This backend is configured for ${process.env.APPLICATION_ID}` });
   const user = await prisma.user.findFirst({ where: { OR: [{ email: identifier }, { phone: identifier }] } });
   if (!user?.passwordHash) return res.status(401).json({ error: "Invalid credentials" });
 

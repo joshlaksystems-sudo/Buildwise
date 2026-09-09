@@ -9,14 +9,14 @@ import {
 } from "../lib/appSelection";
 import { initSync } from "../lib/syncManager";
 
-function storeSession(data: any) {
-  const preferredApplication = (localStorage.getItem("applicationPreference") as "IBIM" | "YARDLOGIC" | null) || "YARDLOGIC";
+function storeSession(data: any, application: "IBIM" | "YARDLOGIC") {
+  setApplicationPreference(application);
   localStorage.setItem("token", data.token);
   localStorage.setItem("businesses", JSON.stringify(data.businesses));
-  const first = resolveBusinessForApplication(data.businesses || [], preferredApplication);
+  const first = resolveBusinessForApplication(data.businesses || [], application);
   if (!first) {
     localStorage.removeItem("businessId");
-    throw new Error(`This account is not registered for ${preferredApplication}. Register a separate ${preferredApplication} account to continue.`);
+    throw new Error(`This account is not registered for ${application}. Register a separate ${application} account to continue.`);
   }
   localStorage.setItem("businessId", first);
 }
@@ -24,13 +24,16 @@ export function Login() {
   const navigate = useNavigate();
   const [application] = useState<"IBIM" | "YARDLOGIC">(() => {
     const requested = new URLSearchParams(window.location.search).get("application");
+    const configured = import.meta.env.VITE_APPLICATION_ID === "IBIM" || import.meta.env.VITE_APPLICATION_ID === "YARDLOGIC"
+      ? import.meta.env.VITE_APPLICATION_ID
+      : "";
     const selected = (requested === "IBIM" || requested === "YARDLOGIC"
       ? requested
-      : localStorage.getItem("applicationPreference")
-        || import.meta.env.VITE_APPLICATION_ID
+      : configured
+        || localStorage.getItem("applicationPreference")
         || "YARDLOGIC") as "IBIM" | "YARDLOGIC";
 
-    if (requested === "IBIM" || requested === "YARDLOGIC") setApplicationPreference(requested);
+    setApplicationPreference(selected);
 
     const savedBusinesses = readStoredBusinesses();
 
@@ -107,7 +110,7 @@ export function Login() {
         ? { identifier: normalizedIdentifier, password, applicationId: application, ...(totpCode ? { totpCode } : {}) }
         : { identifier: normalizedIdentifier, password, name: name.trim(), businessName: businessName.trim(), applicationId: application };
       const data = await api<any>(path, { method: "POST", body: JSON.stringify(body) });
-      storeSession(data);
+      storeSession(data, application);
       initSync();
       if (mode === "register") {
         void api("/auth/welcome-email", { method: "POST" }).catch(() => {});

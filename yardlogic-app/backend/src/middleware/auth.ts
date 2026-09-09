@@ -19,6 +19,21 @@ export function validateApplicationScope(requestedApplication: string | undefine
   return requestedApplication === membershipApplication;
 }
 
+export function validateConfiguredApplicationScope(
+  configuredApplication: string | undefined,
+  requestedApplication: string | undefined,
+  membershipApplication: string | undefined,
+) {
+  if (configuredApplication === "ALL") {
+    return validateApplicationScope(requestedApplication, membershipApplication);
+  }
+  if (configuredApplication === "IBIM" || configuredApplication === "YARDLOGIC") {
+    return membershipApplication === configuredApplication
+      && (!requestedApplication || requestedApplication === configuredApplication);
+  }
+  return true;
+}
+
 export async function requireIdentity(req: AuthedRequest, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) return res.status(401).json({ error: "Missing bearer token" });
@@ -71,14 +86,12 @@ export async function requireAuth(req: AuthedRequest, res: Response, next: NextF
     return res.status(403).json({ error: "You do not have access to this business" });
   }
 
-  if (process.env.APPLICATION_ID === "ALL") {
-    const requestedApplication = req.header("X-Application-Id");
-    if (!validateApplicationScope(requestedApplication, membership.business.applicationId)) {
+  const requestedApplication = req.header("X-Application-Id");
+  if (!validateConfiguredApplicationScope(process.env.APPLICATION_ID, requestedApplication, membership.business.applicationId)) {
+    if (process.env.APPLICATION_ID === "ALL" && !requestedApplication) {
       return res.status(400).json({ error: "Missing or invalid X-Application-Id header" });
     }
-    if (membership.business.applicationId !== requestedApplication) {
-      return res.status(403).json({ error: "This business belongs to a different application" });
-    }
+    return res.status(403).json({ error: "This business belongs to a different application" });
   }
 
   req.userId = userId;
