@@ -74,6 +74,7 @@ export default function App() {
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         {isIbim && <Route path="/ibim" element={isAuthed() && isBusinessValidForSelectedApp() && (!isMultiApplication || selectedApplication() === "IBIM") ? <IbimWorkspace /> : <Navigate to={isMultiApplication ? "/select-application" : "/login"} replace />} />}
+        {isIbim && <Route path="/ibim/setup" element={isAuthed() && isBusinessValidForSelectedApp() && selectedApplication() === "IBIM" ? <BusinessProfile businessId={businessId()} onComplete={() => window.location.assign("/ibim")} /> : <Navigate to="/login?application=IBIM" replace />} />}
         {isYardLogic && <Route path="/" element={isMultiApplication && !selectedApplication() ? <ApplicationHome /> : isAuthed() && isBusinessValidForSelectedApp() ? <Layout /> : <Navigate to={isMultiApplication ? "/select-application" : "/login"} replace />}>
           <Route index element={<Dashboard />} />
           <Route path="invoices" element={<Invoices />} />
