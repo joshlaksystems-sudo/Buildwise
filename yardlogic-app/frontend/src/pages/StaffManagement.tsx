@@ -9,7 +9,24 @@ interface StaffMember {
   email: string | null;
   phone: string | null;
   role: "OWNER" | "ADMIN" | "STAFF" | "SALESMAN" | "ACCOUNTANT";
+  permissions: string[];
 }
+
+const PERMISSION_LABELS: Record<string, string> = {
+  MEMBERS_VIEW: "View members",
+  MEMBERS_EDIT: "Edit members",
+  PROSPECTS_MANAGE: "Manage prospects",
+  PROPOSALS_MANAGE: "Manage proposals",
+  POLICIES_BIND: "Bind policies",
+  ACTIONS_MANAGE: "Manage actions",
+  FINANCE_VIEW: "View finance",
+  FINANCE_EDIT: "Edit finance",
+  REBATES_MANAGE: "Manage rebates",
+  BUDGET_MANAGE: "Manage budget",
+  BORDEREAUX_CLOSE: "Close bordereaux",
+  REPORTS_EXPORT: "Export reports",
+  STAFF_MANAGE: "Manage staff",
+};
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
   OWNER: "Full access, can manage staff and business settings",
@@ -27,6 +44,9 @@ export function StaffManagement() {
   const [showInvite, setShowInvite] = useState(false);
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
   const [newRole, setNewRole] = useState<string>("");
+  const [availablePermissions, setAvailablePermissions] = useState<string[]>([]);
+  const [permissionDraft, setPermissionDraft] = useState<Record<string, string[]>>({});
+  const [savingPermissions, setSavingPermissions] = useState<string | null>(null);
 
   useEffect(() => {
     fetchStaff();
@@ -37,12 +57,32 @@ export function StaffManagement() {
       setLoading(true);
       setError(null);
       const response = await api<any>(`/business/${businessId}/staff`);
-      setStaff(response.staff || []);
+      const permissionsResponse = await api<any>(`/business/${businessId}/permissions`);
+      const members = response.staff || [];
+      setAvailablePermissions(permissionsResponse.permissions || []);
+      setStaff(members.map((member: StaffMember) => ({ ...member, permissions: permissionsResponse.staff?.find((item: any) => item.userId === member.id)?.permissions || [] })));
+      setPermissionDraft(Object.fromEntries((permissionsResponse.staff || []).map((item: any) => [item.userId, item.permissions || []])));
     } catch (err) {
       setError((err as any).message || "Failed to load staff");
     } finally {
       setLoading(false);
     }
+  };
+
+  const savePermissions = async (staffId: string) => {
+    try {
+      setSavingPermissions(staffId);
+      await api(`/business/${businessId}/staff/${staffId}/permissions`, { method: "PUT", body: JSON.stringify({ permissions: permissionDraft[staffId] || [] }) });
+      await fetchStaff();
+    } catch (err) {
+      setError((err as any).message || "Failed to update permissions");
+    } finally {
+      setSavingPermissions(null);
+    }
+  };
+
+  const resetPermissions = (staffId: string) => {
+    setPermissionDraft((current) => ({ ...current, [staffId]: [] }));
   };
 
   const handleInviteSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -142,6 +182,7 @@ export function StaffManagement() {
               </thead>
               <tbody>
                 {staff.map((member) => (
+                  <React.Fragment key={member.id}>
                   <tr key={member.id} className="border-b hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <div className="font-medium text-gray-900">{member.name}</div>
@@ -210,6 +251,24 @@ export function StaffManagement() {
                       )}
                     </td>
                   </tr>
+                  <tr key={`${member.id}-permissions`} className="border-b bg-gray-50">
+                    <td colSpan={4} className="px-6 py-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-semibold text-gray-700">Additional permissions</span>
+                        <div className="space-x-2">
+                          <button type="button" onClick={() => resetPermissions(member.id)} className="text-gray-600 hover:text-gray-900 text-sm">Reset to role defaults</button>
+                          <button type="button" onClick={() => void savePermissions(member.id)} disabled={savingPermissions === member.id} className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 disabled:opacity-50">{savingPermissions === member.id ? "Saving..." : "Save permissions"}</button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        {availablePermissions.map((permission) => {
+                          const checked = (permissionDraft[member.id] || []).includes(permission);
+                          return <label key={permission} className="flex items-center gap-2 text-xs text-gray-600"><input type="checkbox" checked={checked} onChange={(event) => setPermissionDraft((current) => ({ ...current, [member.id]: event.target.checked ? [...(current[member.id] || []), permission] : (current[member.id] || []).filter((item) => item !== permission) }))} />{PERMISSION_LABELS[permission] || permission}</label>;
+                        })}
+                      </div>
+                    </td>
+                  </tr>
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

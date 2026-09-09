@@ -6,7 +6,25 @@ import { AuthedRequest, PERMISSIONS, requireAuth } from "../middleware/auth";
 const router = Router();
 router.use(requireAuth);
 
-router.get("/:id/permissions", async (req: AuthedRequest, res: Response) => {
+// Middleware: verify user is owner/admin of the business
+async function requireBusinessOwner(req: AuthedRequest, res: Response, next: NextFunction) {
+  const businessId = req.params.id;
+  const userId = req.userId;
+
+  if (!businessId || !userId) return res.status(401).json({ error: "Unauthorized" });
+
+  const membership = await prisma.userBusiness.findUnique({
+    where: { userId_businessId: { userId, businessId } },
+  });
+
+  if (!membership || !["OWNER", "ADMIN"].includes(membership.role)) {
+    return res.status(403).json({ error: "Only owner/admin can update business profile" });
+  }
+
+  next();
+}
+
+router.get("/:id/permissions", requireBusinessOwner, async (req: AuthedRequest, res: Response) => {
   const membership = await prisma.userBusiness.findUnique({ where: { userId_businessId: { userId: req.userId!, businessId: req.params.id } }, include: { permissions: true } });
   if (!membership) return res.status(403).json({ error: "Access denied" });
   const staff = await prisma.userBusiness.findMany({ where: { businessId: req.params.id }, include: { user: { select: { id: true, name: true, email: true } }, permissions: true } });
@@ -24,28 +42,6 @@ router.put("/:id/staff/:userId/permissions", requireBusinessOwner, async (req: A
   ]);
   res.json({ updated: true, permissions: parsed.data.permissions });
 });
-
-// Middleware: verify user is owner/admin of the business
-async function requireBusinessOwner(req: AuthedRequest, res: Response, next: NextFunction) {
-  const businessId = req.params.id;
-  const userId = req.userId;
-
-  if (!businessId || !userId) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  const membership = await prisma.userBusiness.findUnique({
-    where: {
-      userId_businessId: { userId, businessId },
-    },
-  });
-
-  if (!membership || !["OWNER", "ADMIN"].includes(membership.role)) {
-    return res.status(403).json({ error: "Only owner/admin can update business profile" });
-  }
-
-  next();
-}
 
 // GET /business/:id - Fetch business profile
 router.get("/:id", async (req: AuthedRequest, res: Response) => {
