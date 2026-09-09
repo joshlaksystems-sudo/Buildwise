@@ -13,7 +13,6 @@ authRouter.get("/application/businesses", requireIdentity, async (req: AuthedReq
   const memberships = await prisma.userBusiness.findMany({ where: { userId: req.userId }, include: { business: { select: { id: true, name: true, applicationId: true } } } });
   res.json({ businesses: memberships.map((membership) => ({ ...membership.business, role: membership.role })) });
 });
-
 authRouter.patch("/application/businesses/:id", requireIdentity, async (req: AuthedRequest, res) => {
   const parsed = z.object({ applicationId: z.enum(["IBIM", "YARDLOGIC"]) }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -67,7 +66,7 @@ async function userWithBusinesses(userId: string, applicationId?: ApplicationId)
   });
   if (!user) return user;
   const businesses = process.env.APPLICATION_ID === "ALL" && (applicationId === "IBIM" || applicationId === "YARDLOGIC")
-    ? user.businesses.filter((membership) => membership.business.applicationId === applicationId || membership.business.applicationId === "UNASSIGNED")
+    ? user.businesses.filter((membership) => membership.business.applicationId === applicationId)
     : user.businesses;
   return {
     ...user,
@@ -243,6 +242,9 @@ authRouter.post("/login", async (req, res) => {
   }
 
   const full = await userWithBusinesses(user.id, applicationId);
+  if (applicationId && !full?.businesses.length) {
+    return res.status(403).json({ error: `This account is not registered for ${applicationId}. Register a separate ${applicationId} account to continue.` });
+  }
   res.json({ token: signToken(user.id), user: { id: user.id, name: user.name }, businesses: full!.businesses });
 });
 
@@ -350,53 +352,5 @@ authRouter.post("/otp/verify", async (req, res) => {
   res.json({ token: signToken(user.id), user: { id: user.id, name: user.name }, businesses: full!.businesses });
 });
 
-// ---------- Create new workspace for existing authenticated user ----------
 
-const createWorkspaceSchema = z.object({
-  businessName: z.string().trim().min(2).max(120),
-  applicationId: z.enum(["IBIM", "YARDLOGIC"]).optional(),
-});
 
-authRouter.post("/workspace/create", requireIdentity, async (req: AuthedRequest, res) => {
-  try {
-    const parsed = createWorkspaceSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-    
-    const { businessName, applicationId } = parsed.data;
-    const userId = req.userId;
-
-    // Verify user exists
-    if (!userId) return res.status(401).json({ error: "User not authenticated" });
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) return res.status(401).json({ error: "User not found" });
-
-    // Create new business and link to existing user
-    const business = await prisma.business.create({
-      data: {
-        name: businessName,
-        applicationId: applicationId || "UNASSIGNED",
-        users: {
-          create: {
-            userId: userId,
-            role: "OWNER",
-          },
-        },
-      },
-    });
-
-    // Return updated user with all businesses
-    const full = await userWithBusinesses(userId, applicationId);
-    res.status(201).json({ 
-      workspace: {
-        id: business.id,
-        name: business.name,
-        applicationId: business.applicationId,
-      },
-      user: { id: user.id, name: user.name },
-      businesses: full!.businesses,
-    });
-  } catch (error) {
-    console.error("Error creating workspace:", error);
-    res.status(500).json({ error: "Failed to create workspace" });
-  }
-});
