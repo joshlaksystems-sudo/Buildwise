@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
+    "prisma:prepare-schema": "tsx src/scripts/prepareAppSchema.ts",
     "prisma:generate": "prisma generate",
     "prisma:studio": "prisma studio",
     "seed:templates": "tsx src/scripts/seedMaterialTemplates.ts",

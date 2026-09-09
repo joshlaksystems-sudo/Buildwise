@@ -41,6 +41,9 @@ const applicationId = process.env.APPLICATION_ID;
 if (process.env.NODE_ENV === "production" && applicationId !== "IBIM" && applicationId !== "YARDLOGIC" && applicationId !== "ALL") {
 	throw new Error("APPLICATION_ID must be configured in production as IBIM, YARDLOGIC, or ALL");
 }
+if (process.env.NODE_ENV === "production" && process.env.PHYSICAL_APP_SCHEMAS === "true" && (!process.env.DATABASE_SCHEMA || applicationId === "ALL")) {
+	throw new Error("Physical app schemas require APPLICATION_ID=IBIM or YARDLOGIC and DATABASE_SCHEMA=ibim or yardlogic");
+}
 const allowedOrigins = [
 	...(process.env.CORS_ORIGINS || "*").split(","),
 	process.env.FRONTEND_URL || "",
