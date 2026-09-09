@@ -31,10 +31,12 @@ import { approvalsRouter } from "./routes/approvals";
 import { whatsappRouter } from "./routes/whatsapp";
 import { emailWebhooksRouter } from "./routes/email-webhooks";
 import { ibimPublicRouter, ibimRouter } from "./routes/ibim";
+import { ibimOperationsRouter } from "./routes/ibimOperations";
 import { billingRouter } from "./routes/billing";
 import { prisma } from "./lib/prisma";
 import crypto from "node:crypto";
 import { reportUnhandledError } from "./services/monitoring";
+import { runIbimAutomationForAllBusinesses } from "./services/ibimAutomation";
 
 const app = express();
 const applicationId = process.env.APPLICATION_ID;
@@ -109,6 +111,17 @@ app.get("/health/google-cloud", async (_req, res) => {
 	const ready = status.bigQueryInitialized && status.vertexAIInitialized && bigQueryConnection.ok;
 	res.status(ready ? 200 : 503).json({ ok: ready, ...status, bigQueryConnection });
 });
+app.get("/internal/cron/ibim", async (req, res) => {
+	const configuredSecret = process.env.CRON_SECRET;
+	const authorization = req.header("Authorization");
+	if (!configuredSecret || authorization !== `Bearer ${configuredSecret}`) return res.status(401).json({ error: "Unauthorized" });
+	try {
+		res.json(await runIbimAutomationForAllBusinesses());
+	} catch (error) {
+		console.error("iBIM cron automation failed:", error);
+		res.status(500).json({ error: "Automation failed" });
+	}
+});
 app.use(whatsappRouter);
 app.use("/webhooks", emailWebhooksRouter);
 app.use("/auth", authRouter);
@@ -142,6 +155,7 @@ app.use("/billing", billingRouter);
 if (applicationId === "IBIM" || applicationId === "ALL") {
 	app.use("/ibim/public", ibimPublicRouter);
 app.use("/ibim", ibimRouter);
+app.use("/ibim", ibimOperationsRouter);
 }
 
 app.use((error: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
