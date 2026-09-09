@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { Component, ErrorInfo, lazy, ReactNode, Suspense, useEffect } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { Login } from "./pages/Login";
@@ -77,7 +77,8 @@ export default function App() {
   }
 
   return (
-    <Suspense fallback={<div style={{ padding: 32 }}>Loading workspace...</div>}>
+    <AppErrorBoundary>
+      <Suspense fallback={<div style={{ padding: 32 }}>Loading workspace...</div>}>
       <Routes>
         <Route path="/select-application" element={<ApplicationHome />} />
         <Route path="/login" element={isAuthed() && isBusinessValidForSelectedApp() ? <Navigate to={selectedApplication() === "IBIM" ? "/ibim" : "/" } replace /> : <Login />} />
@@ -111,8 +112,28 @@ export default function App() {
           <Route path="ask" element={<Ask />} />
         </Route>}
       </Routes>
-    </Suspense>
+      </Suspense>
+    </AppErrorBoundary>
   );
+}
+
+class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("Application startup/render error:", error, info);
+  }
+
+  render() {
+    if (this.state.error) {
+      return <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24, background: "var(--paper, #f6f6f2)", color: "var(--ink, #16233f)" }}><section style={{ width: "min(520px, 100%)", padding: 28, background: "white", border: "1px solid var(--rule, #d8d6cc)" }}><p style={{ textTransform: "uppercase", letterSpacing: ".12em", fontSize: 11, color: "var(--gold, #c98a1f)" }}>Buildwise</p><h1>Workspace could not load</h1><p>Refresh once after the latest deployment, or return to sign in and start a clean session.</p><p style={{ fontSize: 12, color: "var(--ink-soft, #4a5570)" }}>{this.state.error.message}</p><div style={{ display: "flex", gap: 8 }}><button type="button" onClick={() => window.location.reload()}>Refresh</button><button type="button" className="secondary" onClick={() => { clearAuthSession({ preserveApplicationPreference: true }); window.location.assign("/login"); }}>Return to sign in</button></div></section></main>;
+    }
+    return this.props.children;
+  }
 }
 
 function ApplicationHome() {

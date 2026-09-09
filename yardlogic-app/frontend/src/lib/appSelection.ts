@@ -26,7 +26,8 @@ export function readStoredBusinesses(): Array<Record<string, any>> {
   if (typeof window === "undefined" || !window.localStorage) return [];
   try {
     const raw = window.localStorage.getItem("businesses");
-    return raw ? JSON.parse(raw) : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
