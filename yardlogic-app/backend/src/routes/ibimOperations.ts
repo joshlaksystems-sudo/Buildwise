@@ -125,7 +125,7 @@ ibimOperationsRouter.post("/bordereaux/:year/:month/close", requirePermission("B
   res.json({ period });
 });
 
-ibimOperationsRouter.get("/reports/kpis", async (req: AuthedRequest, res) => {
+ibimOperationsRouter.get("/reports/kpis", requirePermission("REPORTS_VIEW"), async (req: AuthedRequest, res) => {
   const businessId = req.businessId!; const from = req.query.from ? new Date(String(req.query.from)) : new Date(new Date().getFullYear(), 0, 1); const to = req.query.to ? new Date(String(req.query.to)) : new Date();
   const [proposals, policies, members, transactions, tasks] = await Promise.all([
     prisma.ibimProposal.findMany({ where: { businessId, createdAt: { gte: from, lte: to } }, select: { status: true, type: true, createdAt: true, submittedAt: true } }),
@@ -138,7 +138,7 @@ ibimOperationsRouter.get("/reports/kpis", async (req: AuthedRequest, res) => {
   res.json({ period: { from, to }, members, proposals: proposals.length, quoted, accepted, conversionRate: proposals.length ? accepted / proposals.length : 0, quoteRate: proposals.length ? quoted / proposals.length : 0, policies: policies.length, premium: policies.reduce((sum, row) => sum + Number(row.premium || 0), 0), commission: policies.reduce((sum, row) => sum + Number(row.commission || 0), 0), income: transactions.filter((row) => ["PREMIUM", "PAYMENT", "COMMISSION"].includes(row.type)).reduce((sum, row) => sum + Number(row.amount), 0), rebates: transactions.filter((row) => row.type === "REBATE").reduce((sum, row) => sum + Number(row.amount), 0), handlerPerformance: tasks.reduce<Record<string, { total: number; completed: number }>>((result, task) => { const key = task.assignedToId!; result[key] ||= { total: 0, completed: 0 }; result[key].total += 1; if (task.status === "DONE") result[key].completed += 1; return result; }, {}) });
 });
 
-ibimOperationsRouter.get("/reports/kpis.pdf", async (req: AuthedRequest, res) => {
+ibimOperationsRouter.get("/reports/kpis.pdf", requirePermission("REPORTS_EXPORT"), async (req: AuthedRequest, res) => {
   const businessId = req.businessId!;
   const from = req.query.from ? new Date(String(req.query.from)) : new Date(new Date().getFullYear(), 0, 1);
   const to = req.query.to ? new Date(String(req.query.to)) : new Date();
@@ -166,7 +166,7 @@ ibimOperationsRouter.get("/reports/kpis.pdf", async (req: AuthedRequest, res) =>
   doc.end();
 });
 
-ibimOperationsRouter.get("/reports/bordereaux/:year/:month.csv", async (req: AuthedRequest, res) => {
+ibimOperationsRouter.get("/reports/bordereaux/:year/:month.csv", requirePermission("REPORTS_EXPORT"), async (req: AuthedRequest, res) => {
   const period = await prisma.ibimBordereauxPeriod.findFirst({ where: { businessId: req.businessId, year: Number(req.params.year), month: Number(req.params.month) }, include: { rows: true } });
   if (!period) return res.status(404).json({ error: "Bordereaux period not found" });
   const escape = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;

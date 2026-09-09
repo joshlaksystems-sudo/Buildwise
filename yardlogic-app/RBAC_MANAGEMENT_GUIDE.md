@@ -35,7 +35,8 @@ The iBIM application uses the following permissions for its main operational are
 | Payments and finance | View and edit | View only | No access | View and edit |
 | Rebates | Manage | No access | No access | Manage |
 | Budget | Manage | No access | No access | Manage |
-| Reports and exports | Full | No export by default | No export by default | Export |
+| Reports | Full | View | No access | View |
+| Report exports | Full | No access by default | No access by default | Export |
 | Reconciliation | Manage | No access | No access | Edit |
 | Staff management | Manage | No access | No access | No access |
 

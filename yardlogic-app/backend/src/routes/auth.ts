@@ -48,6 +48,7 @@ async function userWithBusinesses(userId: string, applicationId?: ApplicationId)
     include: {
       businesses: {
         include: {
+          permissions: { select: { permission: true } },
           business: {
             select: {
               id: true, name: true, gstin: true, address: true, logoUrl: true, defaultTax: true,

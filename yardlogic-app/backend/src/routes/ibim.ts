@@ -364,7 +364,7 @@ ibimRouter.post("/transactions", requirePermission("FINANCE_EDIT"), async (req: 
   res.status(201).json({ transaction });
 });
 
-ibimRouter.get("/reports/management", async (req: AuthedRequest, res) => {
+ibimRouter.get("/reports/management", requirePermission("REPORTS_VIEW"), async (req: AuthedRequest, res) => {
   const businessId = req.businessId!;
   const [policies, transactions, proposals] = await Promise.all([
     prisma.ibimPolicy.groupBy({ by: ["status"], where: { businessId }, _count: { _all: true } }),
@@ -374,7 +374,7 @@ ibimRouter.get("/reports/management", async (req: AuthedRequest, res) => {
   res.json({ policies, transactions, proposals });
 });
 
-ibimRouter.get("/reports/filtered", async (req: AuthedRequest, res) => {
+ibimRouter.get("/reports/filtered", requirePermission("REPORTS_VIEW"), async (req: AuthedRequest, res) => {
   const where: Prisma.IbimPolicyWhereInput = { businessId: req.businessId };
   if (typeof req.query.insurer === "string" && req.query.insurer.trim()) where.insurerName = { equals: req.query.insurer.trim(), mode: "insensitive" };
   if (typeof req.query.status === "string" && req.query.status.trim()) where.status = req.query.status.trim();
@@ -397,7 +397,7 @@ ibimRouter.get("/tasks", async (req: AuthedRequest, res) => {
   res.json({ tasks });
 });
 
-ibimRouter.get("/reports/bordereaux.csv", async (req: AuthedRequest, res) => {
+ibimRouter.get("/reports/bordereaux.csv", requirePermission("REPORTS_EXPORT"), async (req: AuthedRequest, res) => {
   const policies = await prisma.ibimPolicy.findMany({ where: { businessId: req.businessId }, include: { member: true }, orderBy: { policyNumber: "asc" } });
   const rows = ["policy_number,member_name,insurer,status,inception_date,renewal_date,premium,commission"];
   for (const policy of policies) {

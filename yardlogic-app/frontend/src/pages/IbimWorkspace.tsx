@@ -2,7 +2,7 @@ import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { API_BASE_URL, api } from "../lib/api";
 
 type View = "overview" | "members" | "prospects" | "new-business" | "proposals" | "policies" | "renewals" | "workflow" | "bordereaux" | "payments" | "rebates" | "budget" | "reports" | "weekly-reporting" | "monthly-reporting" | "board-pack" | "migration" | "audit" | "activity" | "reconciliation" | "deliveries";
-type Permission = "MEMBERS_VIEW" | "MEMBERS_EDIT" | "PROSPECTS_MANAGE" | "PROPOSALS_MANAGE" | "ACTIONS_MANAGE" | "FINANCE_VIEW" | "FINANCE_EDIT" | "REBATES_MANAGE" | "BUDGET_MANAGE" | "REPORTS_EXPORT";
+type Permission = "MEMBERS_VIEW" | "MEMBERS_EDIT" | "PROSPECTS_MANAGE" | "PROPOSALS_MANAGE" | "ACTIONS_MANAGE" | "FINANCE_VIEW" | "FINANCE_EDIT" | "REBATES_MANAGE" | "BUDGET_MANAGE" | "REPORTS_VIEW" | "REPORTS_EXPORT";
 type NavItem = [View, string, Permission?];
 type Member = { id: string; legalName: string; tradingName?: string | null; email?: string | null; phone?: string | null; status: string };
 type Proposal = { id: string; type: string; status: string; formVersion?: string | null; submittedAt?: string | null; member?: Member | null };
@@ -24,13 +24,13 @@ type Reconciliation = { id: string; sourceSystem: string; policyNumber?: string 
 const navGroups: Array<[string, NavItem[]]> = [
   ["Workspace", [["members", "All member data", "MEMBERS_VIEW"], ["prospects", "Prospects", "PROSPECTS_MANAGE"], ["new-business", "New business", "PROPOSALS_MANAGE"], ["renewals", "Renewals", "PROPOSALS_MANAGE"], ["workflow", "Actions", "ACTIONS_MANAGE"], ["bordereaux", "Bordereaux"]]],
   ["Finance & accounts", [["payments", "Payments", "FINANCE_VIEW"], ["rebates", "Rebates", "REBATES_MANAGE"], ["budget", "Budget", "BUDGET_MANAGE"]]],
-  ["Business insights", [["weekly-reporting", "Weekly reporting", "REPORTS_EXPORT"], ["monthly-reporting", "Monthly reporting", "REPORTS_EXPORT"], ["board-pack", "Board pack", "REPORTS_EXPORT"]]],
+  ["Business insights", [["weekly-reporting", "Weekly reporting", "REPORTS_VIEW"], ["monthly-reporting", "Monthly reporting", "REPORTS_VIEW"], ["board-pack", "Board pack", "REPORTS_VIEW"]]],
   ["Operations", [["proposals", "Proposal forms", "PROPOSALS_MANAGE"], ["policies", "Policy register"], ["migration", "Migration", "MEMBERS_EDIT"], ["reconciliation", "Reconciliation", "FINANCE_EDIT"], ["deliveries", "Email delivery"], ["activity", "Activity timeline"], ["audit", "Audit history"]]],
 ];
 const rolePermissions: Record<string, Permission[]> = {
-  STAFF: ["MEMBERS_VIEW", "PROSPECTS_MANAGE", "PROPOSALS_MANAGE", "ACTIONS_MANAGE", "FINANCE_VIEW"],
+  STAFF: ["MEMBERS_VIEW", "PROSPECTS_MANAGE", "PROPOSALS_MANAGE", "ACTIONS_MANAGE", "FINANCE_VIEW", "REPORTS_VIEW"],
   SALESMAN: ["MEMBERS_VIEW", "PROSPECTS_MANAGE", "PROPOSALS_MANAGE", "ACTIONS_MANAGE"],
-  ACCOUNTANT: ["MEMBERS_VIEW", "FINANCE_VIEW", "FINANCE_EDIT", "REBATES_MANAGE", "BUDGET_MANAGE", "REPORTS_EXPORT"],
+  ACCOUNTANT: ["MEMBERS_VIEW", "FINANCE_VIEW", "FINANCE_EDIT", "REBATES_MANAGE", "BUDGET_MANAGE", "REPORTS_VIEW", "REPORTS_EXPORT"],
 };
 const nav = [["overview", "Control room"] as NavItem, ...navGroups.flatMap(([, items]) => items)];
 const emptyMember = { legalName: "", tradingName: "", email: "", phone: "" };
@@ -40,8 +40,10 @@ const emptyTransaction = { policyId: "", type: "PREMIUM", amount: "", transactio
 
 export function IbimWorkspace() {
   const [view, setView] = useState<View>("overview"); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [error, setError] = useState(""); const [notice, setNotice] = useState("");
-  const currentRole = (() => { try { const businessId = localStorage.getItem("businessId"); const businesses = JSON.parse(localStorage.getItem("businesses") || "[]"); const membership = businesses.find((entry: any) => (entry.business ?? entry).id === businessId); return membership?.role || "STAFF"; } catch { return "STAFF"; } })();
-  const canAccess = (permission?: Permission) => !permission || currentRole === "OWNER" || currentRole === "ADMIN" || rolePermissions[currentRole]?.includes(permission) === true;
+  const currentMembership = (() => { try { const businessId = localStorage.getItem("businessId"); const businesses = JSON.parse(localStorage.getItem("businesses") || "[]"); return businesses.find((entry: any) => (entry.business ?? entry).id === businessId); } catch { return null; } })();
+  const currentRole = currentMembership?.role || "STAFF";
+  const customPermissions = (currentMembership?.permissions || []).map((item: any) => typeof item === "string" ? item : item.permission) as Permission[];
+  const canAccess = (permission?: Permission) => !permission || currentRole === "OWNER" || currentRole === "ADMIN" || customPermissions.includes(permission) || rolePermissions[currentRole]?.includes(permission) === true;
   const [overview, setOverview] = useState<Overview>({ members: 0, openProposals: 0, renewalsDue: 0, openTasks: 0, premium: "0" }); const [members, setMembers] = useState<Member[]>([]); const [prospects, setProspects] = useState<Prospect[]>([]); const [proposals, setProposals] = useState<Proposal[]>([]); const [policies, setPolicies] = useState<Policy[]>([]); const [tasks, setTasks] = useState<Task[]>([]); const [transactions, setTransactions] = useState<Transaction[]>([]); const [payments, setPayments] = useState<DedicatedPayment[]>([]); const [report, setReport] = useState<Report | null>(null); const [renewalCalendar, setRenewalCalendar] = useState<RenewalsCalendar>({ overdue: [], next30: [], next60: [], next90: [], total: 0 }); const [audit, setAudit] = useState<Audit[]>([]); const [activity, setActivity] = useState<Activity[]>([]); const [deliveries, setDeliveries] = useState<Delivery[]>([]); const [reconciliation, setReconciliation] = useState<Reconciliation[]>([]);
   const [memberForm, setMemberForm] = useState(emptyMember); const [proposalForm, setProposalForm] = useState(emptyProposal); const [policyForm, setPolicyForm] = useState(emptyPolicy); const [transactionForm, setTransactionForm] = useState(emptyTransaction); const [importPreview, setImportPreview] = useState<ImportPreview[]>([]); const [pendingImportRows, setPendingImportRows] = useState<unknown[]>([]);
 
