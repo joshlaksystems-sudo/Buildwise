@@ -4,7 +4,7 @@ import multer from "multer";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { hasPermission, requireAuth, requirePermission, requireRole, AuthedRequest, signIbimProposalAccessToken, verifyIbimProposalAccessToken } from "../middleware/auth";
-import { memberSchema, normalizeImportedMember, parseCsvRows, proposalDataSchema } from "../services/ibimValidation";
+import { canTransitionProposalStatus, memberSchema, normalizeImportedMember, parseCsvRows, proposalDataSchema, proposalStatuses } from "../services/ibimValidation";
 import { sendGmailEmail } from "../services/notifyService";
 import { writeAudit } from "../services/audit";
 
@@ -312,7 +312,7 @@ ibimRouter.post("/proposals/:id/renew", requirePermission("PROPOSALS_MANAGE"), a
 
 ibimRouter.patch("/proposals/:id/status", requirePermission("PROPOSALS_MANAGE"), async (req: AuthedRequest, res) => {
   const parsed = z.object({
-    status: z.enum(["DRAFT", "SUBMITTED", "PROPOSAL_RECEIVED", "IN_REVIEW", "AWAITING_UNDERWRITING", "QUOTE_APPROVED", "QUOTE_PREPARED", "QUOTE_SENT", "QUOTED", "ACCEPTED", "BOUND", "DECLINED", "RENEWAL_OVERDUE", "LAPSED"]),
+    status: z.enum(proposalStatuses),
     policyNumber: z.string().trim().min(2).max(100).optional(),
     insurerName: z.string().trim().max(180).optional(),
     externalPolicyRef: z.string().trim().max(180).optional(),
@@ -337,6 +337,7 @@ ibimRouter.patch("/proposals/:id/status", requirePermission("PROPOSALS_MANAGE"),
   if (parsed.data.status === "BOUND" && !await hasPermission(req, "POLICIES_BIND")) return res.status(403).json({ error: "Missing permission: POLICIES_BIND" });
   const existing = await prisma.ibimProposal.findFirst({ where: { id: req.params.id, businessId: req.businessId }, include: { member: true } });
   if (!existing) return res.status(404).json({ error: "Proposal not found" });
+  if (!canTransitionProposalStatus(existing.status, parsed.data.status)) return res.status(409).json({ error: `Cannot move proposal from ${existing.status} to ${parsed.data.status}` });
   const result = await prisma.$transaction(async (tx) => {
     const existingData = existing.data && typeof existing.data === "object" && !Array.isArray(existing.data) ? existing.data as Record<string, unknown> : {};
     const proposal = await tx.ibimProposal.update({ where: { id: existing.id }, data: { status: parsed.data.status, ...(parsed.data.rating ? { data: jsonInput({ ...existingData, rating: parsed.data.rating }) } : {}) } });

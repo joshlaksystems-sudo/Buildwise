@@ -18,6 +18,33 @@ export const proposalDataSchema = z.object({
   requestedCover: z.string().trim().min(2).max(500),
 });
 
+export const proposalStatuses = [
+  "DRAFT", "SUBMITTED", "PROPOSAL_RECEIVED", "IN_REVIEW", "AWAITING_UNDERWRITING",
+  "QUOTE_APPROVED", "QUOTE_PREPARED", "QUOTE_SENT", "QUOTED", "ACCEPTED", "BOUND",
+  "DECLINED", "RENEWAL_OVERDUE", "LAPSED",
+] as const;
+
+const proposalTransitions: Record<string, readonly string[]> = {
+  DRAFT: ["SUBMITTED"],
+  SUBMITTED: ["PROPOSAL_RECEIVED", "IN_REVIEW", "DRAFT", "DECLINED"],
+  PROPOSAL_RECEIVED: ["IN_REVIEW", "DRAFT", "DECLINED"],
+  IN_REVIEW: ["AWAITING_UNDERWRITING", "DRAFT", "DECLINED"],
+  AWAITING_UNDERWRITING: ["QUOTE_APPROVED", "DRAFT", "DECLINED"],
+  QUOTE_APPROVED: ["QUOTE_PREPARED", "DRAFT", "DECLINED"],
+  QUOTE_PREPARED: ["QUOTE_SENT", "DRAFT", "DECLINED"],
+  QUOTE_SENT: ["QUOTED", "ACCEPTED", "DRAFT", "DECLINED"],
+  QUOTED: ["ACCEPTED", "DRAFT", "DECLINED"],
+  ACCEPTED: ["BOUND", "DECLINED"],
+  RENEWAL_OVERDUE: ["PROPOSAL_RECEIVED", "LAPSED", "DECLINED"],
+  DECLINED: [],
+  BOUND: [],
+  LAPSED: [],
+};
+
+export function canTransitionProposalStatus(current: string, next: string) {
+  return current === next || proposalTransitions[current]?.includes(next) === true;
+}
+
 export function parseCsvRows(csv: string): Record<string, string>[] {
   const lines = csv.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   if (lines.length < 2) return [];
