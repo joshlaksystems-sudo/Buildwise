@@ -10,6 +10,45 @@ ibimOperationsRouter.use(requireAuth);
 
 const money = z.number().finite().nonnegative();
 
+ibimOperationsRouter.get("/prospects", async (req: AuthedRequest, res) => {
+  const prospects = await prisma.ibimProspect.findMany({ where: { businessId: req.businessId }, orderBy: [{ renewalDate: "asc" }, { createdAt: "desc" }], take: 1000 });
+  res.json({ prospects });
+});
+
+ibimOperationsRouter.post("/prospects", requireRole("OWNER", "ADMIN", "STAFF"), async (req: AuthedRequest, res) => {
+  const parsed = z.object({ companyName: z.string().trim().min(2).max(180), email: z.string().trim().email().optional(), renewalDate: z.coerce.date().optional(), source: z.string().trim().max(80).optional() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const existing = await prisma.ibimProspect.findFirst({ where: { businessId: req.businessId, companyName: parsed.data.companyName, renewalDate: parsed.data.renewalDate || null } });
+  const prospect = existing
+    ? await prisma.ibimProspect.update({ where: { id: existing.id }, data: parsed.data })
+    : await prisma.ibimProspect.create({ data: { businessId: req.businessId!, ...parsed.data } });
+  res.status(201).json({ prospect });
+});
+
+ibimOperationsRouter.get("/payments", async (req: AuthedRequest, res) => {
+  const payments = await prisma.ibimPayment.findMany({ where: { businessId: req.businessId }, include: { member: true, policy: true }, orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }], take: 1000 });
+  res.json({ payments });
+});
+
+ibimOperationsRouter.post("/payments", requireRole("OWNER", "ADMIN", "ACCOUNTANT"), async (req: AuthedRequest, res) => {
+  const parsed = z.object({ memberId: z.string().uuid().optional(), policyId: z.string().uuid().optional(), amountDue: money, dueDate: z.coerce.date().optional(), method: z.string().trim().max(60).optional(), financeProvider: z.string().trim().max(120).optional(), financeAgreementNumber: z.string().trim().max(120).optional(), notes: z.string().trim().max(1000).optional() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (parsed.data.memberId && !await prisma.ibimMember.findFirst({ where: { id: parsed.data.memberId, businessId: req.businessId }, select: { id: true } })) return res.status(404).json({ error: "Member not found" });
+  if (parsed.data.policyId && !await prisma.ibimPolicy.findFirst({ where: { id: parsed.data.policyId, businessId: req.businessId }, select: { id: true } })) return res.status(404).json({ error: "Policy not found" });
+  const payment = await prisma.ibimPayment.create({ data: { businessId: req.businessId!, ...parsed.data } });
+  res.status(201).json({ payment });
+});
+
+ibimOperationsRouter.patch("/payments/:id", requireRole("OWNER", "ADMIN", "ACCOUNTANT"), async (req: AuthedRequest, res) => {
+  const parsed = z.object({ amountPaid: money, paidAt: z.coerce.date().optional(), status: z.enum(["AWAITING_PAYMENT", "PART_PAID", "PAID", "OVERDUE", "CANCELLED"]).optional(), method: z.string().trim().max(60).optional(), reference: z.string().trim().max(180).optional() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const payment = await prisma.ibimPayment.findFirst({ where: { id: req.params.id, businessId: req.businessId } });
+  if (!payment) return res.status(404).json({ error: "Payment not found" });
+  const status = parsed.data.status || (parsed.data.amountPaid >= Number(payment.amountDue) ? "PAID" : parsed.data.amountPaid > 0 ? "PART_PAID" : payment.status);
+  const updated = await prisma.ibimPayment.update({ where: { id: payment.id }, data: { ...parsed.data, status, paidAt: parsed.data.paidAt || (status === "PAID" ? new Date() : undefined) } });
+  res.json({ payment: updated });
+});
+
 ibimOperationsRouter.get("/rebates", async (req: AuthedRequest, res) => {
   const funds = await prisma.ibimRebateFund.findMany({ where: { businessId: req.businessId }, include: { allocations: { include: { member: true, payments: true } } }, orderBy: { rebateYear: "desc" } });
   res.json({ funds });
