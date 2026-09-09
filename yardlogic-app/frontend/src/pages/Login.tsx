@@ -16,13 +16,7 @@ function storeSession(data: any) {
   const first = resolveBusinessForApplication(data.businesses || [], preferredApplication);
   if (!first) {
     localStorage.removeItem("businessId");
-    const hasUnassignedWorkspace = (data.businesses || []).some((entry: any) => {
-      const business = entry?.business ?? entry;
-      return business?.applicationId === "UNASSIGNED";
-    });
-    throw new Error(hasUnassignedWorkspace
-      ? "Your workspace needs to be classified before you can open this application."
-      : `No ${preferredApplication} workspace is linked to this account. Create a workspace for ${preferredApplication} first.`);
+    throw new Error(`This account is not registered for ${preferredApplication}. Register a separate ${preferredApplication} account to continue.`);
   }
   localStorage.setItem("businessId", first);
 }
@@ -45,12 +39,7 @@ export function Login() {
       return business?.id && business?.applicationId === selected;
     });
 
-    const hasUnassignedWorkspace = savedBusinesses.some((entry: any) => {
-      const business = entry?.business ?? entry;
-      return business?.applicationId === "UNASSIGNED";
-    });
-
-    if (localStorage.getItem("token") && !hasValidSavedBusiness && !hasUnassignedWorkspace) {
+    if (localStorage.getItem("token") && !hasValidSavedBusiness) {
       clearAuthSession({ preserveApplicationPreference: true });
     }
 
@@ -67,18 +56,8 @@ export function Login() {
       return business?.id === savedBusinessId && business?.applicationId === application;
     });
 
-    const hasUnassignedWorkspace = readStoredBusinesses().some((entry: any) => {
-      const business = entry?.business ?? entry;
-      return business?.applicationId === "UNASSIGNED";
-    });
-
-    if (!validBusiness && !hasUnassignedWorkspace) {
+    if (!validBusiness) {
       clearAuthSession({ preserveApplicationPreference: true });
-      return;
-    }
-
-    if (!validBusiness && hasUnassignedWorkspace) {
-      navigate("/select-application", { replace: true });
       return;
     }
 
@@ -141,9 +120,6 @@ export function Login() {
       }
       if (mode === "login" && err.message === "Please verify your email before logging in") {
         setRequiresEmailVerification(true);
-      }
-      if (mode === "login" && err.message === "Your workspace needs to be classified before you can open this application.") {
-        navigate("/select-application", { replace: true });
       }
       setError(err.message || "Unable to continue");
     } finally {
