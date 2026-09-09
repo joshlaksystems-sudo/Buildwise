@@ -310,7 +310,7 @@ The endpoint requires:
 Authorization: Bearer <CRON_SECRET>
 ```
 
-It is scheduled hourly in the backend Vercel configuration. A local process also starts an hourly scheduler when the backend runs as a persistent process.
+It is scheduled daily at 00:00 UTC in the backend Vercel configuration to remain compatible with Vercel Hobby accounts. A local process also starts an hourly scheduler when the backend runs as a persistent process.
 
 ## 11. Actions and Workflow Tasks
 
@@ -695,7 +695,7 @@ VITE_APPLICATION_ID=ALL
 
 For email automation, configure the Gmail provider values used by the notification service.
 
-The GitHub Actions deployment must have `CRON_SECRET` configured as a repository secret. It is passed to the backend deployment and used by the hourly Vercel Cron request.
+The GitHub Actions deployment must have `CRON_SECRET` configured as a repository secret. It is passed to the backend deployment and used by the daily Vercel Cron request.
 
 ## 25. Verification Checklist
 
