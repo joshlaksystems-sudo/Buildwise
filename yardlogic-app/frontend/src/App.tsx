@@ -10,6 +10,7 @@ import {
   businessMatchesSelectedApplication,
   clearAuthSession,
   readApplicationPreference,
+  readStoredBusinesses,
   setApplicationPreference,
 } from "./lib/appSelection";
 
@@ -108,11 +109,30 @@ function ApplicationHome() {
   const [message, setMessage] = useState("");
   useEffect(() => { if (localStorage.getItem("token")) void api<{ businesses: Array<{ id: string; name: string; applicationId: string; role: string }> }>("/auth/application/businesses").then((result) => setUnassigned(result.businesses.filter((business) => business.applicationId === "UNASSIGNED"))).catch(() => {}); }, []);
   function choose(application: "IBIM" | "YARDLOGIC") {
-    clearAppSession();
+    const hasUnassignedWorkspace = readStoredBusinesses().some((entry) => {
+      const business = entry?.business ?? entry;
+      return business?.applicationId === "UNASSIGNED";
+    });
+    if (!hasUnassignedWorkspace) clearAppSession();
     setApplicationPreference(application);
     window.location.replace(application === "IBIM" ? "/login?application=IBIM" : "/login?application=YARDLOGIC");
   }
 
-  async function classify(id: string, applicationId: "IBIM" | "YARDLOGIC") { try { await api(`/auth/application/businesses/${id}`, { method: "PATCH", body: JSON.stringify({ applicationId }) }); setUnassigned((items) => items.filter((item) => item.id !== id)); setMessage("Business classified. Select its application to continue."); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to classify business"); } }
+  async function classify(id: string, applicationId: "IBIM" | "YARDLOGIC") {
+    try {
+      await api(`/auth/application/businesses/${id}`, { method: "PATCH", body: JSON.stringify({ applicationId }) });
+      const updatedBusinesses = readStoredBusinesses().map((entry) => {
+        const business = entry?.business ?? entry;
+        if (business?.id !== id) return entry;
+        if (entry?.business) return { ...entry, business: { ...entry.business, applicationId } };
+        return { ...entry, applicationId };
+      });
+      localStorage.setItem("businesses", JSON.stringify(updatedBusinesses));
+      setUnassigned((items) => items.filter((item) => item.id !== id));
+      setMessage("Business classified. Select its application to continue.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to classify business");
+    }
+  }
   return <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24, background: "#142b2a" }}><section style={{ width: "min(900px, 100%)", color: "#f4f0e7" }}><p className="eyebrow">Choose your workspace</p><h1 style={{ fontSize: "clamp(36px, 7vw, 72px)", margin: "12px 0 16px" }}>What are you here to run?</h1><p style={{ maxWidth: 620, color: "rgba(244,240,231,.72)", lineHeight: 1.7 }}>Select a platform to create an account or sign in. You can return here later to switch workspace.</p><div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16, marginTop: 34 }}><button type="button" onClick={() => choose("IBIM")} style={{ textAlign: "left", padding: 26, minHeight: 180, background: "#d98654", color: "#191312", border: 0 }}><strong style={{ display: "block", fontSize: 25 }}>iBIM</strong><span style={{ display: "block", marginTop: 12 }}>Insurance mutual operations, proposals, renewals, policies, and broker reporting.</span></button><button type="button" onClick={() => choose("YARDLOGIC")} style={{ textAlign: "left", padding: 26, minHeight: 180, background: "#f0bf67", color: "#191312", border: 0 }}><strong style={{ display: "block", fontSize: 25 }}>YardLogic</strong><span style={{ display: "block", marginTop: 12 }}>Stock, invoicing, purchasing, GST, payments, and business operations.</span></button></div>{message && <p style={{ marginTop: 20 }}>{message}</p>}{unassigned.length > 0 && <section style={{ marginTop: 32, paddingTop: 20, borderTop: "1px solid rgba(255,255,255,.2)" }}><h2>Classify existing workspace</h2>{unassigned.map((business) => <div key={business.id} style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between", padding: "12px 0" }}><span>{business.name}</span><span><button type="button" onClick={() => void classify(business.id, "IBIM")}>iBIM</button><button type="button" onClick={() => void classify(business.id, "YARDLOGIC")}>YardLogic</button></span></div>)}</section>}</section></main>;
 }
