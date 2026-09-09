@@ -357,7 +357,7 @@ const createWorkspaceSchema = z.object({
   applicationId: z.enum(["IBIM", "YARDLOGIC"]).optional(),
 });
 
-authRouter.post("/workspace/create", requireAuth, async (req: AuthedRequest, res) => {
+authRouter.post("/workspace/create", requireIdentity, async (req: AuthedRequest, res) => {
   try {
     const parsed = createWorkspaceSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });

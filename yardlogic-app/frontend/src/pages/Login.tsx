@@ -95,6 +95,8 @@ export function Login() {
   const [businessName, setBusinessName] = useState("");
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotMessage, setForgotMessage] = useState("");
+  const [workspaceCreationRequired, setWorkspaceCreationRequired] = useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -145,6 +147,9 @@ export function Login() {
       if (mode === "login" && err.message === "Your workspace needs to be classified before you can open this application.") {
         navigate("/select-application", { replace: true });
       }
+      if (mode === "login" && err.message?.startsWith("No ")) {
+        setWorkspaceCreationRequired(true);
+      }
       setError(err.message || "Unable to continue");
     } finally {
       setLoading(false);
@@ -159,6 +164,25 @@ export function Login() {
       setForgotMessage("If an account exists for that email, a reset link has been sent.");
     } catch (err: any) {
       setError(err.message || "Unable to request a reset link");
+    }
+  }
+
+  async function createWorkspace() {
+    if (newWorkspaceName.trim().length < 2 || loading) return;
+    setLoading(true);
+    setError("");
+    try {
+      const data = await api<any>("/auth/workspace/create", {
+        method: "POST",
+        body: JSON.stringify({ businessName: newWorkspaceName.trim(), applicationId: application }),
+      });
+      storeSession(data);
+      initSync();
+      navigate(application === "IBIM" ? "/ibim" : "/", { replace: true });
+    } catch (err: any) {
+      setError(err.message || "Unable to create workspace");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -208,6 +232,13 @@ export function Login() {
           <Field label="Password" type="password" value={password} onChange={setPassword} />
           {mode === "login" && requiresTotp && <Field label="Authenticator code" value={totpCode} onChange={setTotpCode} />}
           {error && <p style={{ color: "var(--red)", fontSize: 13 }}>{error}</p>}
+          {workspaceCreationRequired && mode === "login" && <div style={{ marginBottom: 12 }}>
+            <p style={{ color: "var(--ink-soft)", fontSize: 13 }}>This account has no {application === "IBIM" ? "iBIM" : "YardLogic"} workspace yet. Create one without signing in again.</p>
+            <Field label={`${application === "IBIM" ? "iBIM" : "YardLogic"} workspace name`} value={newWorkspaceName} onChange={setNewWorkspaceName} />
+            <button type="button" className="secondary" style={{ width: "100%" }} disabled={loading || newWorkspaceName.trim().length < 2} onClick={() => void createWorkspace()}>
+              {loading ? "Creating workspace..." : `Create ${application === "IBIM" ? "iBIM" : "YardLogic"} workspace`}
+            </button>
+          </div>}
           {requiresEmailVerification && <button type="button" className="secondary" style={{ width: "100%", marginBottom: 8 }} onClick={resendVerification}>Resend verification email</button>}
           <button type="submit" style={{ width: "100%" }} disabled={loading || !identifier || password.length < 8 || (mode === "register" && (!name || !businessName))}>
             {loading ? "Please wait..." : mode === "login" ? "Log in" : "Create account"}
