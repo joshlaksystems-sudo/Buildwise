@@ -84,3 +84,24 @@ export async function api<T = any>(path: string, options: RequestInit = {}): Pro
 
   throw lastError instanceof Error ? lastError : new Error("Request failed. Please try again.");
 }
+
+export async function downloadFile(path: string, filename: string) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: {
+      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+      ...(getBusinessId() ? { "X-Business-Id": getBusinessId()! } : {}),
+      ...(getApplicationId() ? { "X-Application-Id": getApplicationId() } : {}),
+    },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(typeof body.error === "string" ? body.error : `Download failed: ${response.status}`);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}

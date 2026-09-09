@@ -5,6 +5,7 @@ import { Login } from "./pages/Login";
 import { IbimWorkspace } from "./pages/IbimWorkspace";
 import { ResetPassword } from "./pages/ResetPassword";
 import { VerifyEmail } from "./pages/VerifyEmail";
+import { PublicIbimProposal } from "./pages/PublicIbimProposal";
 import {
   businessMatchesSelectedApplication,
   clearAuthSession,
@@ -82,6 +83,7 @@ export default function App() {
         <Route path="/login" element={isAuthed() && isBusinessValidForSelectedApp() ? <Navigate to={selectedApplication() === "IBIM" ? "/ibim" : "/" } replace /> : <Login />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
+        {isIbim && <Route path="/ibim/public/proposals/:id" element={<PublicIbimProposal />} />}
         {isIbim && <Route path="/ibim" element={isAuthed() && isBusinessValidForSelectedApp() && (!isMultiApplication || selectedApplication() === "IBIM") ? <IbimWorkspace /> : <Navigate to={isMultiApplication ? "/select-application" : "/login"} replace />} />}
         {isIbim && <Route path="/ibim/staff-management" element={isAuthed() && isBusinessValidForSelectedApp() && selectedApplication() === "IBIM" && isOwnerOrAdmin() ? <StaffManagement /> : <Navigate to="/ibim" replace />} />}
         {isIbim && <Route path="/ibim/setup" element={isAuthed() && isBusinessValidForSelectedApp() && selectedApplication() === "IBIM" ? <BusinessProfile businessId={businessId()} onComplete={() => window.location.assign("/ibim")} /> : <Navigate to="/login?application=IBIM" replace />} />}

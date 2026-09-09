@@ -34,7 +34,10 @@ ibimPublicRouter.post("/proposals/:id", async (req, res) => {
   if (!access || access.proposalId !== req.params.id) return res.status(401).json({ error: "Invalid or expired proposal link" });
   const parsed = proposalDataSchema.safeParse(req.body?.data);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const proposal = await prisma.ibimProposal.update({ where: { id: access.proposalId }, data: { data: jsonInput(parsed.data), status: "SUBMITTED", submittedAt: new Date() } });
+  const proposal = await prisma.ibimProposal.update({ where: { id: access.proposalId }, data: { data: jsonInput(parsed.data), status: "SUBMITTED", submittedAt: new Date() }, include: { member: true } });
+  if (proposal.member?.email) {
+    void sendGmailEmail(proposal.member.email, "Proposal information received", "Thank you for returning your proposal information. The Insurance Mutual team will review it and contact you with the next step.").catch((error) => console.error("Public proposal acknowledgement failed:", error));
+  }
   res.json({ submitted: true, proposalId: proposal.id });
 });
 
@@ -315,6 +318,17 @@ ibimRouter.patch("/proposals/:id/status", requirePermission("PROPOSALS_MANAGE"),
     externalPolicyRef: z.string().trim().max(180).optional(),
     premium: z.number().nonnegative().finite().optional(),
     commission: z.number().nonnegative().finite().optional(),
+    rating: z.object({
+      grossPremium: z.number().nonnegative().finite(),
+      ipt: z.number().nonnegative().finite(),
+      fees: z.number().nonnegative().finite(),
+      commission: z.number().nonnegative().finite(),
+      netPremium: z.number().nonnegative().finite(),
+      previousPremium: z.number().nonnegative().finite().optional(),
+      premiumDifference: z.number().finite().optional(),
+      incomeSplits: z.record(z.string(), z.number().nonnegative().finite()).optional(),
+      ratingVersion: z.string().trim().max(80).optional(),
+    }).optional(),
     inceptionDate: z.coerce.date().optional(),
     renewalDate: z.coerce.date().optional(),
   }).safeParse(req.body);
@@ -324,14 +338,16 @@ ibimRouter.patch("/proposals/:id/status", requirePermission("PROPOSALS_MANAGE"),
   const existing = await prisma.ibimProposal.findFirst({ where: { id: req.params.id, businessId: req.businessId }, include: { member: true } });
   if (!existing) return res.status(404).json({ error: "Proposal not found" });
   const result = await prisma.$transaction(async (tx) => {
-    const proposal = await tx.ibimProposal.update({ where: { id: existing.id }, data: { status: parsed.data.status } });
+    const existingData = existing.data && typeof existing.data === "object" && !Array.isArray(existing.data) ? existing.data as Record<string, unknown> : {};
+    const proposal = await tx.ibimProposal.update({ where: { id: existing.id }, data: { status: parsed.data.status, ...(parsed.data.rating ? { data: jsonInput({ ...existingData, rating: parsed.data.rating }) } : {}) } });
     if (parsed.data.status !== "BOUND") return { proposal, policy: null, transaction: null };
     const policy = await tx.ibimPolicy.upsert({
       where: { businessId_policyNumber: { businessId: req.businessId!, policyNumber: parsed.data.policyNumber! } },
-      update: { memberId: existing.memberId, proposalId: existing.id, insurerName: parsed.data.insurerName, externalPolicyRef: parsed.data.externalPolicyRef, status: "BOUND", premium: parsed.data.premium, commission: parsed.data.commission, inceptionDate: parsed.data.inceptionDate || new Date(), renewalDate: parsed.data.renewalDate },
-      create: { businessId: req.businessId!, memberId: existing.memberId, proposalId: existing.id, policyNumber: parsed.data.policyNumber!, insurerName: parsed.data.insurerName, externalPolicyRef: parsed.data.externalPolicyRef, status: "BOUND", premium: parsed.data.premium, commission: parsed.data.commission, inceptionDate: parsed.data.inceptionDate || new Date(), renewalDate: parsed.data.renewalDate },
+      update: { memberId: existing.memberId, proposalId: existing.id, insurerName: parsed.data.insurerName, externalPolicyRef: parsed.data.externalPolicyRef, status: "BOUND", premium: parsed.data.rating?.grossPremium ?? parsed.data.premium, commission: parsed.data.rating?.commission ?? parsed.data.commission, inceptionDate: parsed.data.inceptionDate || new Date(), renewalDate: parsed.data.renewalDate },
+      create: { businessId: req.businessId!, memberId: existing.memberId, proposalId: existing.id, policyNumber: parsed.data.policyNumber!, insurerName: parsed.data.insurerName, externalPolicyRef: parsed.data.externalPolicyRef, status: "BOUND", premium: parsed.data.rating?.grossPremium ?? parsed.data.premium, commission: parsed.data.rating?.commission ?? parsed.data.commission, inceptionDate: parsed.data.inceptionDate || new Date(), renewalDate: parsed.data.renewalDate },
     });
-    const transaction = parsed.data.premium === undefined ? null : await tx.ibimTransaction.create({ data: { businessId: req.businessId!, policyId: policy.id, type: "PREMIUM", amount: parsed.data.premium, transactionDate: new Date(), reference: `BOUND:${existing.id}` } });
+    const transactionAmount = parsed.data.rating?.grossPremium ?? parsed.data.premium;
+    const transaction = transactionAmount === undefined ? null : await tx.ibimTransaction.create({ data: { businessId: req.businessId!, policyId: policy.id, type: "PREMIUM", amount: transactionAmount, transactionDate: new Date(), reference: `BOUND:${existing.id}` } });
     await tx.ibimWorkflowTask.updateMany({ where: { businessId: req.businessId, proposalId: existing.id, status: { notIn: ["DONE", "CANCELLED"] } }, data: { status: "DONE", completedAt: new Date() } });
     return { proposal, policy, transaction };
   });
