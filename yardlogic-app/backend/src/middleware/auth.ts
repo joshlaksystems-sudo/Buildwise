@@ -147,3 +147,28 @@ export function requireRole(...roles: string[]) {
     next();
   };
 }
+
+export const PERMISSIONS = [
+  "MEMBERS_VIEW", "MEMBERS_EDIT", "PROSPECTS_MANAGE", "PROPOSALS_MANAGE", "POLICIES_BIND",
+  "ACTIONS_MANAGE", "FINANCE_VIEW", "FINANCE_EDIT", "REBATES_MANAGE", "BUDGET_MANAGE",
+  "BORDEREAUX_CLOSE", "REPORTS_EXPORT", "STAFF_MANAGE",
+] as const;
+
+const rolePermissions: Record<string, readonly string[]> = {
+  STAFF: ["MEMBERS_VIEW", "MEMBERS_EDIT", "PROSPECTS_MANAGE", "PROPOSALS_MANAGE", "ACTIONS_MANAGE", "FINANCE_VIEW"],
+  SALESMAN: ["MEMBERS_VIEW", "MEMBERS_EDIT", "PROSPECTS_MANAGE", "PROPOSALS_MANAGE", "ACTIONS_MANAGE"],
+  ACCOUNTANT: ["MEMBERS_VIEW", "FINANCE_VIEW", "FINANCE_EDIT", "REBATES_MANAGE", "BUDGET_MANAGE", "REPORTS_EXPORT"],
+};
+
+export function requirePermission(permission: typeof PERMISSIONS[number]) {
+  return async (req: AuthedRequest, res: Response, next: NextFunction) => {
+    if (!req.userId || !req.businessId) return res.status(401).json({ error: "Unauthorized" });
+    const membership = await prisma.userBusiness.findUnique({ where: { userId_businessId: { userId: req.userId, businessId: req.businessId } }, include: { permissions: true } });
+    if (!membership) return res.status(403).json({ error: "Business membership not found" });
+    if (membership.role === "OWNER" || membership.role === "ADMIN" || membership.permissions.some((item) => item.permission === permission) || rolePermissions[membership.role]?.includes(permission)) {
+      next();
+      return;
+    }
+    return res.status(403).json({ error: `Missing permission: ${permission}` });
+  };
+}

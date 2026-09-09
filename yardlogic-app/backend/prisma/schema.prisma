@@ -749,10 +749,22 @@ model UserBusiness {
   businessId String
   role       Role   @default(STAFF)
 
-  user     User     @relation(fields: [userId], references: [id])
-  business Business @relation(fields: [businessId], references: [id])
+  user        User                     @relation(fields: [userId], references: [id])
+  business    Business                 @relation(fields: [businessId], references: [id])
+  permissions UserBusinessPermission[]
 
   @@unique([userId, businessId])
+}
+
+model UserBusinessPermission {
+  id             String       @id @default(uuid())
+  userBusinessId String
+  permission     String
+  createdAt      DateTime     @default(now())
+  membership     UserBusiness @relation(fields: [userBusinessId], references: [id], onDelete: Cascade)
+
+  @@unique([userBusinessId, permission])
+  @@index([permission])
 }
 
 enum Role {

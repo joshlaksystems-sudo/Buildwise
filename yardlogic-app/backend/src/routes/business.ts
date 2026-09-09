@@ -1,10 +1,29 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
-import { AuthedRequest, requireAuth } from "../middleware/auth";
+import { AuthedRequest, PERMISSIONS, requireAuth } from "../middleware/auth";
 
 const router = Router();
 router.use(requireAuth);
+
+router.get("/:id/permissions", async (req: AuthedRequest, res: Response) => {
+  const membership = await prisma.userBusiness.findUnique({ where: { userId_businessId: { userId: req.userId!, businessId: req.params.id } }, include: { permissions: true } });
+  if (!membership) return res.status(403).json({ error: "Access denied" });
+  const staff = await prisma.userBusiness.findMany({ where: { businessId: req.params.id }, include: { user: { select: { id: true, name: true, email: true } }, permissions: true } });
+  res.json({ permissions: [...PERMISSIONS], staff: staff.map((item) => ({ userId: item.userId, name: item.user.name, email: item.user.email, role: item.role, permissions: item.permissions.map((permission) => permission.permission) })) });
+});
+
+router.put("/:id/staff/:userId/permissions", requireBusinessOwner, async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({ permissions: z.array(z.string().refine((permission) => (PERMISSIONS as readonly string[]).includes(permission), "Unknown permission")).max(PERMISSIONS.length) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const membership = await prisma.userBusiness.findUnique({ where: { userId_businessId: { userId: req.params.userId, businessId: req.params.id } } });
+  if (!membership) return res.status(404).json({ error: "Staff member not found" });
+  await prisma.$transaction([
+    prisma.userBusinessPermission.deleteMany({ where: { userBusinessId: membership.id } }),
+    prisma.userBusinessPermission.createMany({ data: parsed.data.permissions.map((permission) => ({ userBusinessId: membership.id, permission })) }),
+  ]);
+  res.json({ updated: true, permissions: parsed.data.permissions });
+});
 
 // Middleware: verify user is owner/admin of the business
 async function requireBusinessOwner(req: AuthedRequest, res: Response, next: NextFunction) {

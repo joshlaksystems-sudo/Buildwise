@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
-import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth";
+import { AuthedRequest, requireAuth, requirePermission, requireRole } from "../middleware/auth";
 import { writeAudit } from "../services/audit";
 import PDFDocument from "pdfkit";
 
@@ -15,7 +15,7 @@ ibimOperationsRouter.get("/prospects", async (req: AuthedRequest, res) => {
   res.json({ prospects });
 });
 
-ibimOperationsRouter.post("/prospects", requireRole("OWNER", "ADMIN", "STAFF"), async (req: AuthedRequest, res) => {
+ibimOperationsRouter.post("/prospects", requirePermission("PROSPECTS_MANAGE"), async (req: AuthedRequest, res) => {
   const parsed = z.object({ companyName: z.string().trim().min(2).max(180), email: z.string().trim().email().optional(), renewalDate: z.coerce.date().optional(), source: z.string().trim().max(80).optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const existing = await prisma.ibimProspect.findFirst({ where: { businessId: req.businessId, companyName: parsed.data.companyName, renewalDate: parsed.data.renewalDate || null } });
@@ -30,7 +30,7 @@ ibimOperationsRouter.get("/payments", async (req: AuthedRequest, res) => {
   res.json({ payments });
 });
 
-ibimOperationsRouter.post("/payments", requireRole("OWNER", "ADMIN", "ACCOUNTANT"), async (req: AuthedRequest, res) => {
+ibimOperationsRouter.post("/payments", requirePermission("FINANCE_EDIT"), async (req: AuthedRequest, res) => {
   const parsed = z.object({ memberId: z.string().uuid().optional(), policyId: z.string().uuid().optional(), amountDue: money, dueDate: z.coerce.date().optional(), method: z.string().trim().max(60).optional(), financeProvider: z.string().trim().max(120).optional(), financeAgreementNumber: z.string().trim().max(120).optional(), notes: z.string().trim().max(1000).optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   if (parsed.data.memberId && !await prisma.ibimMember.findFirst({ where: { id: parsed.data.memberId, businessId: req.businessId }, select: { id: true } })) return res.status(404).json({ error: "Member not found" });
@@ -39,7 +39,7 @@ ibimOperationsRouter.post("/payments", requireRole("OWNER", "ADMIN", "ACCOUNTANT
   res.status(201).json({ payment });
 });
 
-ibimOperationsRouter.patch("/payments/:id", requireRole("OWNER", "ADMIN", "ACCOUNTANT"), async (req: AuthedRequest, res) => {
+ibimOperationsRouter.patch("/payments/:id", requirePermission("FINANCE_EDIT"), async (req: AuthedRequest, res) => {
   const parsed = z.object({ amountPaid: money, paidAt: z.coerce.date().optional(), status: z.enum(["AWAITING_PAYMENT", "PART_PAID", "PAID", "OVERDUE", "CANCELLED"]).optional(), method: z.string().trim().max(60).optional(), reference: z.string().trim().max(180).optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const payment = await prisma.ibimPayment.findFirst({ where: { id: req.params.id, businessId: req.businessId } });
@@ -54,7 +54,7 @@ ibimOperationsRouter.get("/rebates", async (req: AuthedRequest, res) => {
   res.json({ funds });
 });
 
-ibimOperationsRouter.post("/rebates/funds", requireRole("OWNER", "ADMIN", "ACCOUNTANT"), async (req: AuthedRequest, res) => {
+ibimOperationsRouter.post("/rebates/funds", requirePermission("REBATES_MANAGE"), async (req: AuthedRequest, res) => {
   const parsed = z.object({ rebateYear: z.number().int().min(2000).max(2200), totalPot: money }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const fund = await prisma.ibimRebateFund.upsert({ where: { businessId_rebateYear: { businessId: req.businessId!, rebateYear: parsed.data.rebateYear } }, update: { totalPot: parsed.data.totalPot }, create: { businessId: req.businessId!, ...parsed.data } });
@@ -62,7 +62,7 @@ ibimOperationsRouter.post("/rebates/funds", requireRole("OWNER", "ADMIN", "ACCOU
   res.status(201).json({ fund });
 });
 
-ibimOperationsRouter.post("/rebates/:fundId/allocations", requireRole("OWNER", "ADMIN", "ACCOUNTANT"), async (req: AuthedRequest, res) => {
+ibimOperationsRouter.post("/rebates/:fundId/allocations", requirePermission("REBATES_MANAGE"), async (req: AuthedRequest, res) => {
   const parsed = z.object({ memberId: z.string().uuid(), entitlement: money }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const fund = await prisma.ibimRebateFund.findFirst({ where: { id: req.params.fundId, businessId: req.businessId } });
@@ -72,7 +72,7 @@ ibimOperationsRouter.post("/rebates/:fundId/allocations", requireRole("OWNER", "
   res.status(201).json({ allocation });
 });
 
-ibimOperationsRouter.post("/rebates/allocations/:id/payments", requireRole("OWNER", "ADMIN", "ACCOUNTANT"), async (req: AuthedRequest, res) => {
+ibimOperationsRouter.post("/rebates/allocations/:id/payments", requirePermission("REBATES_MANAGE"), async (req: AuthedRequest, res) => {
   const parsed = z.object({ amount: money, reference: z.string().trim().max(180).optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const allocation = await prisma.ibimRebateAllocation.findFirst({ where: { id: req.params.id, businessId: req.businessId } });
@@ -95,7 +95,7 @@ ibimOperationsRouter.get("/budgets/:year", async (req: AuthedRequest, res) => {
   res.json({ budget, actual });
 });
 
-ibimOperationsRouter.put("/budgets/:year", requireRole("OWNER", "ADMIN", "ACCOUNTANT"), async (req: AuthedRequest, res) => {
+ibimOperationsRouter.put("/budgets/:year", requirePermission("BUDGET_MANAGE"), async (req: AuthedRequest, res) => {
   const year = Number(req.params.year);
   const parsed = z.object({ status: z.enum(["DRAFT", "APPROVED", "CLOSED"]).optional(), lines: z.array(z.object({ category: z.string().trim().min(1).max(80), month: z.number().int().min(1).max(12), target: money })).max(500) }).safeParse(req.body);
   if (!Number.isInteger(year) || !parsed.success) return res.status(400).json({ error: parsed.success ? "Invalid budget year" : parsed.error.flatten() });
@@ -108,7 +108,7 @@ ibimOperationsRouter.put("/budgets/:year", requireRole("OWNER", "ADMIN", "ACCOUN
   res.json({ budget });
 });
 
-ibimOperationsRouter.post("/bordereaux/:year/:month/close", requireRole("OWNER", "ADMIN"), async (req: AuthedRequest, res) => {
+ibimOperationsRouter.post("/bordereaux/:year/:month/close", requirePermission("BORDEREAUX_CLOSE"), async (req: AuthedRequest, res) => {
   const year = Number(req.params.year); const month = Number(req.params.month);
   if (!Number.isInteger(year) || month < 1 || month > 12) return res.status(400).json({ error: "Invalid bordereaux period" });
   const period = await prisma.$transaction(async (tx) => {
