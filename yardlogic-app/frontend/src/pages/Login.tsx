@@ -101,8 +101,7 @@ export function Login() {
     }
     setLoading(true);
     try {
-      localStorage.removeItem("businessId");
-      localStorage.removeItem("businesses");
+      clearAuthSession({ preserveApplicationPreference: true });
       const path = mode === "login" ? "/auth/login" : "/auth/signup";
       const body = mode === "login"
         ? { identifier: normalizedIdentifier, password, applicationId: application, ...(totpCode ? { totpCode } : {}) }
