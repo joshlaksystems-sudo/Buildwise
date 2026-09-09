@@ -99,6 +99,83 @@ The estimate assumes one responsive iBIM web application, one shared backend, th
 
 ## 2. iBIM operating workflow
 
+### Updated platform diagram set
+
+The platform-level visual diagrams are available here:
+
+![iBIM platform architecture, data model, workflow, use cases and swimlane](ibim-platform-diagrams.svg)
+
+The platform diagram set treats the **Master Record as the source of truth**. Prospects and website enquiries converge into proposals; renewals reuse prior-year data; accepted proposals create policies and finance records; post-bind data feeds Bordereaux, New Business, Renewals, rebates reporting and management insight.
+
+### iBIM Master Record data model
+
+```mermaid
+erDiagram
+    BUSINESS ||--o{ USER_BUSINESS : has
+    BUSINESS ||--o{ MEMBER : contains
+    MEMBER ||--o{ PROSPECT : may_have
+    MEMBER ||--o{ PROPOSAL : submits
+    PROPOSAL ||--o{ PROPOSAL : renews_from
+    PROPOSAL ||--o| POLICY : binds_to
+    POLICY ||--o{ PAYMENT : creates
+    POLICY ||--o{ FINANCE_TRANSACTION : records
+    BUSINESS ||--o{ REBATE_FUND : owns_standalone
+    REBATE_FUND ||--o{ REBATE_ALLOCATION : distributes
+    MEMBER ||--o{ REBATE_ALLOCATION : receives
+    BUSINESS ||--o{ BORDEREAUX_PERIOD : closes
+    BORDEREAUX_PERIOD ||--o{ BORDEREAUX_ROW : contains
+    POLICY ||--o{ BORDEREAUX_ROW : appears_in
+    MEMBER ||--o{ WORKFLOW_TASK : has
+    PROPOSAL ||--o{ WORKFLOW_TASK : creates
+    POLICY ||--o{ WORKFLOW_TASK : creates
+    BUSINESS ||--o{ AUDIT_EVENT : records
+
+    BUSINESS {
+        uuid id PK
+        string name
+        string application_id
+    }
+    MEMBER {
+        uuid id PK
+        uuid business_id FK
+        string legal_name
+        string email
+        date renewal_date
+    }
+    PROSPECT {
+        uuid id PK
+        uuid member_id FK
+        string source
+        string status
+        date renewal_date
+    }
+    PROPOSAL {
+        uuid id PK
+        uuid member_id FK
+        string type
+        string status
+        json rating_breakdown
+    }
+    POLICY {
+        uuid id PK
+        uuid proposal_id FK
+        string policy_number
+        decimal gross_premium
+        decimal commission
+    }
+    PAYMENT {
+        uuid id PK
+        uuid policy_id FK
+        decimal amount_due
+        string status
+    }
+    REBATE_FUND {
+        uuid id PK
+        int rebate_year
+        decimal total_pot
+    }
+```
+
 ```mermaid
 flowchart TD
     A[Business and team setup] --> B[Import or create member records]
@@ -226,9 +303,9 @@ sequenceDiagram
 
 ## 6. Proposal architecture diagram
 
-![iBIM proposal architecture, use-case, workflow and swimlane diagrams](ibim-proposal-diagrams.svg)
+![iBIM platform architecture, data model, workflow, use cases and swimlane diagrams](ibim-platform-diagrams.svg)
 
-The image above is the presentation version. The Mermaid definitions below remain available for editing and reuse.
+The image above is the updated presentation version for the complete platform. The Mermaid definitions below remain available for editing and reuse; the platform-level data model and workflow set is defined in section 2.
 
 ```mermaid
 flowchart TB
