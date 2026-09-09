@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth";
 import { writeAudit } from "../services/audit";
+import PDFDocument from "pdfkit";
 
 export const ibimOperationsRouter = Router();
 ibimOperationsRouter.use(requireAuth);
@@ -96,6 +97,34 @@ ibimOperationsRouter.get("/reports/kpis", async (req: AuthedRequest, res) => {
   ]);
   const accepted = proposals.filter((item) => item.status === "BOUND").length; const quoted = proposals.filter((item) => ["QUOTED", "BOUND"].includes(item.status)).length;
   res.json({ period: { from, to }, members, proposals: proposals.length, quoted, accepted, conversionRate: proposals.length ? accepted / proposals.length : 0, quoteRate: proposals.length ? quoted / proposals.length : 0, policies: policies.length, premium: policies.reduce((sum, row) => sum + Number(row.premium || 0), 0), commission: policies.reduce((sum, row) => sum + Number(row.commission || 0), 0), income: transactions.filter((row) => ["PREMIUM", "PAYMENT", "COMMISSION"].includes(row.type)).reduce((sum, row) => sum + Number(row.amount), 0), rebates: transactions.filter((row) => row.type === "REBATE").reduce((sum, row) => sum + Number(row.amount), 0), handlerPerformance: tasks.reduce<Record<string, { total: number; completed: number }>>((result, task) => { const key = task.assignedToId!; result[key] ||= { total: 0, completed: 0 }; result[key].total += 1; if (task.status === "DONE") result[key].completed += 1; return result; }, {}) });
+});
+
+ibimOperationsRouter.get("/reports/kpis.pdf", async (req: AuthedRequest, res) => {
+  const businessId = req.businessId!;
+  const from = req.query.from ? new Date(String(req.query.from)) : new Date(new Date().getFullYear(), 0, 1);
+  const to = req.query.to ? new Date(String(req.query.to)) : new Date();
+  const [proposals, policies, transactions] = await Promise.all([
+    prisma.ibimProposal.findMany({ where: { businessId, createdAt: { gte: from, lte: to } }, select: { status: true } }),
+    prisma.ibimPolicy.findMany({ where: { businessId, createdAt: { gte: from, lte: to } }, select: { premium: true, commission: true } }),
+    prisma.ibimTransaction.findMany({ where: { businessId, transactionDate: { gte: from, lte: to } }, select: { type: true, amount: true } }),
+  ]);
+  const bound = proposals.filter((row) => row.status === "BOUND" || row.status === "ACCEPTED").length;
+  const premium = policies.reduce((sum, row) => sum + Number(row.premium || 0), 0);
+  const commission = policies.reduce((sum, row) => sum + Number(row.commission || 0), 0);
+  const income = transactions.filter((row) => ["PREMIUM", "PAYMENT", "COMMISSION"].includes(row.type)).reduce((sum, row) => sum + Number(row.amount), 0);
+  const doc = new PDFDocument({ size: "A4", margin: 48 });
+  const chunks: Buffer[] = [];
+  doc.on("data", (chunk) => chunks.push(chunk));
+  doc.on("end", () => { res.type("application/pdf").setHeader("Content-Disposition", "attachment; filename=ibim-kpis.pdf").send(Buffer.concat(chunks)); });
+  doc.fontSize(22).text("iBIM Management KPI Report").moveDown();
+  doc.fontSize(10).text(`Period: ${from.toISOString().slice(0, 10)} to ${to.toISOString().slice(0, 10)}`).moveDown(2);
+  doc.fontSize(13).text(`Proposals: ${proposals.length}`);
+  doc.text(`Bound / accepted: ${bound}`);
+  doc.text(`Conversion rate: ${proposals.length ? ((bound / proposals.length) * 100).toFixed(1) : "0.0"}%`);
+  doc.text(`Premium: GBP ${premium.toFixed(2)}`);
+  doc.text(`Commission: GBP ${commission.toFixed(2)}`);
+  doc.text(`Income: GBP ${income.toFixed(2)}`);
+  doc.end();
 });
 
 ibimOperationsRouter.get("/reports/bordereaux/:year/:month.csv", async (req: AuthedRequest, res) => {

@@ -309,7 +309,7 @@ ibimRouter.post("/proposals/:id/renew", requireRole("OWNER", "ADMIN", "STAFF"), 
 
 ibimRouter.patch("/proposals/:id/status", requireRole("OWNER", "ADMIN", "STAFF"), async (req: AuthedRequest, res) => {
   const parsed = z.object({
-    status: z.enum(["DRAFT", "SUBMITTED", "IN_REVIEW", "QUOTED", "BOUND", "DECLINED"]),
+    status: z.enum(["DRAFT", "SUBMITTED", "PROPOSAL_RECEIVED", "IN_REVIEW", "AWAITING_UNDERWRITING", "QUOTE_APPROVED", "QUOTE_PREPARED", "QUOTE_SENT", "QUOTED", "ACCEPTED", "BOUND", "DECLINED", "RENEWAL_OVERDUE", "LAPSED"]),
     policyNumber: z.string().trim().min(2).max(100).optional(),
     insurerName: z.string().trim().max(180).optional(),
     externalPolicyRef: z.string().trim().max(180).optional(),
