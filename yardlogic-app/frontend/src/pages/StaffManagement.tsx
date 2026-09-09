@@ -23,6 +23,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   FINANCE_EDIT: "Edit finance",
   REBATES_MANAGE: "Manage rebates",
   BUDGET_MANAGE: "Manage budget",
+  REPORTS_VIEW: "View reports",
   BORDEREAUX_CLOSE: "Close bordereaux",
   REPORTS_EXPORT: "Export reports",
   STAFF_MANAGE: "Manage staff",
@@ -32,12 +33,13 @@ const ROLE_DESCRIPTIONS: Record<string, string> = {
   OWNER: "Full access, can manage staff and business settings",
   ADMIN: "Administrative access, can manage most features",
   STAFF: "Standard staff access, can create and manage operations",
-  SALESMAN: "Sales-focused access, can create invoices and customer orders",
+  SALESMAN: "Proposal and prospect-focused access",
   ACCOUNTANT: "Financial access, can manage payments and reconciliation",
 };
 
 export function StaffManagement() {
-  const { businessId } = useParams<{ businessId: string }>();
+  const { businessId: routeBusinessId } = useParams<{ businessId: string }>();
+  const businessId = routeBusinessId || localStorage.getItem("businessId") || "";
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -346,7 +348,7 @@ export function StaffManagement() {
               </div>
 
               <p className="text-xs text-gray-500 mt-4">
-                * Email or phone is required. New staff members will receive an invitation and can set up their account.
+                * Email or phone is required. For an email invite, the new user should use Forgot password on the login page to create their first password.
               </p>
             </form>
           </div>

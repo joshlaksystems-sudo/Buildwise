@@ -65,6 +65,11 @@ function isBusinessValidForSelectedApp() {
   return Boolean(app && currentBusinessId && businessMatchesSelectedApplication(app, currentBusinessId));
 }
 
+function isOwnerOrAdmin() {
+  const active = readStoredBusinesses().find((entry: any) => (entry?.business ?? entry)?.id === businessId());
+  return active?.role === "OWNER" || active?.role === "ADMIN";
+}
+
 export default function App() {
   if (!isIbim && !isYardLogic) {
     return <div style={{ padding: 32 }}>Application configuration is missing.</div>;
@@ -78,6 +83,7 @@ export default function App() {
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         {isIbim && <Route path="/ibim" element={isAuthed() && isBusinessValidForSelectedApp() && (!isMultiApplication || selectedApplication() === "IBIM") ? <IbimWorkspace /> : <Navigate to={isMultiApplication ? "/select-application" : "/login"} replace />} />}
+        {isIbim && <Route path="/ibim/staff-management" element={isAuthed() && isBusinessValidForSelectedApp() && selectedApplication() === "IBIM" && isOwnerOrAdmin() ? <StaffManagement /> : <Navigate to="/ibim" replace />} />}
         {isIbim && <Route path="/ibim/setup" element={isAuthed() && isBusinessValidForSelectedApp() && selectedApplication() === "IBIM" ? <BusinessProfile businessId={businessId()} onComplete={() => window.location.assign("/ibim")} /> : <Navigate to="/login?application=IBIM" replace />} />}
         {isYardLogic && <Route path="/" element={isMultiApplication && !selectedApplication() ? <ApplicationHome /> : isAuthed() && isBusinessValidForSelectedApp() ? <Layout /> : <Navigate to={isMultiApplication ? "/select-application" : "/login"} replace />}>
           <Route index element={<Dashboard />} />
