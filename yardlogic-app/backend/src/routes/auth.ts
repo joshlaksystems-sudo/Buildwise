@@ -65,7 +65,7 @@ async function userWithBusinesses(userId: string, applicationId?: ApplicationId)
     },
   });
   if (!user) return user;
-  const businesses = process.env.APPLICATION_ID === "ALL" && (applicationId === "IBIM" || applicationId === "YARDLOGIC")
+  const businesses = (applicationId === "IBIM" || applicationId === "YARDLOGIC")
     ? user.businesses.filter((membership) => membership.business.applicationId === applicationId)
     : user.businesses;
   return {
