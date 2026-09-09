@@ -1,5 +1,5 @@
-import { lazy, Suspense } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { lazy, Suspense, useEffect } from "react";
+import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { Login } from "./pages/Login";
 import { IbimWorkspace } from "./pages/IbimWorkspace";
@@ -9,6 +9,7 @@ import {
   businessMatchesSelectedApplication,
   clearAuthSession,
   readApplicationPreference,
+  readStoredBusinesses,
   setApplicationPreference,
 } from "./lib/appSelection";
 
@@ -107,6 +108,29 @@ export default function App() {
 }
 
 function ApplicationHome() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    const businesses = readStoredBusinesses();
+    const storedBusinessId = localStorage.getItem("businessId");
+    const activeEntry = businesses.find((entry: any) => {
+      const business = entry?.business ?? entry;
+      return business?.id === storedBusinessId;
+    });
+    const activeBusiness = activeEntry?.business ?? activeEntry;
+    const activeApplication = activeBusiness?.applicationId === "IBIM" || activeBusiness?.applicationId === "YARDLOGIC"
+      ? activeBusiness.applicationId
+      : "";
+
+    if (activeApplication && storedBusinessId) {
+      setApplicationPreference(activeApplication);
+      navigate(activeApplication === "IBIM" ? "/ibim" : "/", { replace: true });
+    }
+  }, [navigate]);
+
   function choose(application: "IBIM" | "YARDLOGIC") {
     clearAppSession();
     setApplicationPreference(application);
